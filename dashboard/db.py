@@ -1,11 +1,11 @@
-"""DB access layer. Local/Hetzner: SQLite file. Vercel: read-only Turso (libSQL) replica."""
+"""DB access layer. Local/Hetzner: SQLite file. Vercel: read-only Supabase (Postgres) replica."""
 import os
+import re
 import sqlite3
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "database" / "sports_agent.db"
-TURSO_URL = os.getenv("TURSO_DATABASE_URL")
-TURSO_TOKEN = os.getenv("TURSO_AUTH_TOKEN")
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
 
 
 SCHEMA = """
@@ -39,42 +39,50 @@ CREATE TABLE IF NOT EXISTS model_meta (
 );
 """
 
+_PLACEHOLDER_RE = re.compile(r"\?")
+
 
 class _Row(dict):
     """dict subclass so both row["col"] and dict(row) work like sqlite3.Row."""
 
 
-class _TursoCursor:
-    def __init__(self, result_set):
-        self._result_set = result_set
+class _PgCursor:
+    def __init__(self, cur):
+        self._cur = cur
 
     def fetchone(self):
-        rows = self.fetchall()
-        return rows[0] if rows else None
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        cols = [c.name for c in self._cur.description]
+        return _Row(zip(cols, row))
 
     def fetchall(self):
-        cols = self._result_set.columns
-        return [_Row(zip(cols, row)) for row in self._result_set.rows]
+        rows = self._cur.fetchall()
+        cols = [c.name for c in self._cur.description]
+        return [_Row(zip(cols, r)) for r in rows]
 
 
-class _TursoConn:
-    """Thin wrapper giving libsql_client the sqlite3 .execute/.fetchone/.fetchall shape."""
+class _PgConn:
+    """Thin wrapper giving psycopg2 the sqlite3 .execute/.fetchone/.fetchall shape."""
 
-    def __init__(self, client):
-        self._client = client
+    def __init__(self, conn):
+        self._conn = conn
 
     def execute(self, sql, params=()):
-        return _TursoCursor(self._client.execute(sql, params))
+        cur = self._conn.cursor()
+        cur.execute(_PLACEHOLDER_RE.sub("%s", sql), tuple(params))
+        return _PgCursor(cur)
 
     def close(self):
-        self._client.close()
+        self._conn.close()
 
 
 def get_db():
-    if TURSO_URL:
-        import libsql_client
-        client = libsql_client.create_client_sync(url=TURSO_URL, auth_token=TURSO_TOKEN)
-        return _TursoConn(client)
+    if SUPABASE_DB_URL:
+        import psycopg2
+        conn = psycopg2.connect(SUPABASE_DB_URL)
+        return _PgConn(conn)
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -82,8 +90,8 @@ def get_db():
 
 
 def init_db():
-    if TURSO_URL:
-        return  # Turso replica is schema-managed by sync_to_turso.py
+    if SUPABASE_DB_URL:
+        return  # Supabase schema is managed by supabase/schema.sql + sync_to_supabase.py
     conn = sqlite3.connect(DB_PATH)
     conn.executescript(SCHEMA)
     conn.commit()

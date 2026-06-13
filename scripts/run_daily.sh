@@ -26,6 +26,6 @@ run_step tools/fetch_intl_stats.py
 run_step tools/collect_training_data.py
 run_step tools/train_model.py
 run_step tools/predict_wc2026.py
-run_step tools/sync_to_turso.py
+run_step tools/sync_to_supabase.py
 
 echo "[$(date)] Data fetch + ML pipeline complete"

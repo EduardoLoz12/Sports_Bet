@@ -83,35 +83,29 @@ Flask bet tracker + P&L view, including a "Modelo Predictivo" panel exposing gam
 ### Deploying the dashboard to Vercel (read-only mirror)
 
 The Hetzner box keeps owning the cron pipeline + the writable SQLite DB.
-Vercel serves a read-only copy of the dashboard, fed by a [Turso](https://turso.tech)
-(libSQL) replica that `tools/sync_to_turso.py` pushes after every daily run.
+Vercel serves a read-only copy of the dashboard, fed by a Supabase (Postgres)
+replica that `tools/sync_to_supabase.py` pushes after every daily run.
 
-**1. Create the Turso database (one-time, from any machine with the Turso CLI):**
-```bash
-turso auth signup            # or `turso auth login`
-turso db create sports-agent
-turso db show sports-agent --url        # → TURSO_DATABASE_URL
-turso db tokens create sports-agent     # → write token, for Hetzner
-turso db tokens create sports-agent --read-only   # → read token, for Vercel
-```
+**1. Create the Supabase project (one-time, via supabase.com dashboard):**
+- New project (free tier)
+- SQL Editor → paste `supabase/schema.sql` → Run
+- Project Settings → Database → Connection string → URI (pooler, port 6543) → this is `SUPABASE_DB_URL`
 
 **2. On Hetzner**, add to `.env`:
 ```
-TURSO_DATABASE_URL=libsql://sports-agent-<org>.turso.io
-TURSO_AUTH_TOKEN=<write token>
+SUPABASE_DB_URL=postgresql://postgres.xxxx:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
 ```
-Run `python3 tools/sync_to_turso.py` once to seed it (it then runs automatically at the end of `run_daily.sh`).
+Run `python3 tools/sync_to_supabase.py` once to seed it (it then runs automatically at the end of `run_daily.sh`).
 
 **3. On Vercel**, import `EduardoLoz12/Sports_Bet` (it auto-detects `vercel.json` / `api/index.py`). In Project Settings → Environment Variables add:
 ```
-TURSO_DATABASE_URL=libsql://sports-agent-<org>.turso.io
-TURSO_AUTH_TOKEN=<read-only token>
+SUPABASE_DB_URL=postgresql://postgres.xxxx:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
 BANKROLL_START=...
 STAKE_HIGH=...
 STAKE_MED=...
 STAKE_LOW=...
 ```
-Deploy. `dashboard/db.py` automatically switches from local SQLite to the Turso replica whenever `TURSO_DATABASE_URL` is set.
+Deploy. `dashboard/db.py` automatically switches from local SQLite to the Supabase replica whenever `SUPABASE_DB_URL` is set.
 
 ## Data sources (all free tier)
 

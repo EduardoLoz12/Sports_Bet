@@ -171,16 +171,17 @@ def upcoming():
     }
     conn = get_db()
 
+    cutoff = (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat() + "T23:59:59"
     matches = conn.execute("""
         SELECT match_id, home_team, away_team, home_team_id, away_team_id,
                kickoff_utc, stage, group_stage
         FROM matches
         WHERE status IN ('SCHEDULED','TIMED')
           AND home_team IS NOT NULL AND away_team IS NOT NULL
-          AND date(kickoff_utc) <= date('now', '+30 days')
+          AND kickoff_utc <= ?
         ORDER BY kickoff_utc
         LIMIT 40
-    """).fetchall()
+    """, (cutoff,)).fetchall()
 
     result = []
     for m in matches:
