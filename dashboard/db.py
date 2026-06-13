@@ -5,7 +5,10 @@ import sqlite3
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent.parent / "database" / "sports_agent.db"
-SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
+# Only switch to Postgres on Vercel (VERCEL=1 is set automatically there).
+# Hetzner's .env also holds SUPABASE_DB_URL (for sync_to_supabase.py's push
+# target) but its own dashboard must keep reading local SQLite.
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL") if os.getenv("VERCEL") else None
 
 
 SCHEMA = """
