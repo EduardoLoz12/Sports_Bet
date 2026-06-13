@@ -1,52 +1,14 @@
 """Flask P&L + Predictions dashboard."""
-import os, sqlite3, json
+import os, json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, jsonify
 from dotenv import load_dotenv
+from db import get_db, init_db
 
 load_dotenv()
 
-DB_PATH = Path(__file__).parent.parent / "database" / "sports_agent.db"
 app = Flask(__name__)
-
-
-def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS bets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id TEXT, market TEXT, pick TEXT,
-            odds REAL, stake_soles REAL,
-            result TEXT DEFAULT 'pending',
-            profit_soles REAL, placed_at DATETIME, settled_at DATETIME
-        );
-        CREATE TABLE IF NOT EXISTS predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            match_id TEXT, market TEXT, pick TEXT,
-            confidence INTEGER, odds REAL, stake_tier TEXT,
-            created_at TEXT,
-            UNIQUE(match_id, market)
-        );
-        CREATE TABLE IF NOT EXISTS player_stats (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            player_id INTEGER, player_name TEXT,
-            team_id INTEGER, team TEXT, stat_date TEXT,
-            goals_total INTEGER DEFAULT 0, assists INTEGER DEFAULT 0,
-            penalties INTEGER DEFAULT 0, goals_per90 REAL DEFAULT 0,
-            minutes_played INTEGER DEFAULT 0, appearances INTEGER DEFAULT 0,
-            cards_yellow INTEGER DEFAULT 0, cards_red INTEGER DEFAULT 0,
-            fetched_at TEXT
-        );
-    """)
-    conn.commit()
-    conn.close()
 
 
 def pe_time(utc_str: str) -> str:
@@ -166,15 +128,23 @@ def recent_bets():
 
 @app.route("/api/model_info")
 def model_info():
-    models_dir = Path(__file__).parent.parent / "models"
-    dc_file   = models_dir / "dc_params.json"
-    eval_file = models_dir / "eval_report.json"
+    conn = get_db()
+    dc_row   = conn.execute("SELECT json FROM model_meta WHERE key='dc_params'").fetchone()
+    eval_row = conn.execute("SELECT json FROM model_meta WHERE key='eval_report'").fetchone()
+    conn.close()
 
-    if not dc_file.exists():
-        return jsonify({"available": False})
-
-    dc   = json.loads(dc_file.read_text(encoding="utf-8"))
-    eval_report = json.loads(eval_file.read_text(encoding="utf-8")) if eval_file.exists() else {}
+    if dc_row:
+        dc = json.loads(dc_row["json"])
+        eval_report = json.loads(eval_row["json"]) if eval_row else {}
+    else:
+        # Local dev fallback: read straight from models/ before first sync
+        models_dir = Path(__file__).parent.parent / "models"
+        dc_file   = models_dir / "dc_params.json"
+        eval_file = models_dir / "eval_report.json"
+        if not dc_file.exists():
+            return jsonify({"available": False})
+        dc   = json.loads(dc_file.read_text(encoding="utf-8"))
+        eval_report = json.loads(eval_file.read_text(encoding="utf-8")) if eval_file.exists() else {}
 
     return jsonify({
         "available":   True,

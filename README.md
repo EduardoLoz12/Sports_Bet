@@ -80,6 +80,39 @@ python dashboard/app.py
 
 Flask bet tracker + P&L view, including a "Modelo Predictivo" panel exposing gamma, rho, RPS and skill%.
 
+### Deploying the dashboard to Vercel (read-only mirror)
+
+The Hetzner box keeps owning the cron pipeline + the writable SQLite DB.
+Vercel serves a read-only copy of the dashboard, fed by a [Turso](https://turso.tech)
+(libSQL) replica that `tools/sync_to_turso.py` pushes after every daily run.
+
+**1. Create the Turso database (one-time, from any machine with the Turso CLI):**
+```bash
+turso auth signup            # or `turso auth login`
+turso db create sports-agent
+turso db show sports-agent --url        # → TURSO_DATABASE_URL
+turso db tokens create sports-agent     # → write token, for Hetzner
+turso db tokens create sports-agent --read-only   # → read token, for Vercel
+```
+
+**2. On Hetzner**, add to `.env`:
+```
+TURSO_DATABASE_URL=libsql://sports-agent-<org>.turso.io
+TURSO_AUTH_TOKEN=<write token>
+```
+Run `python3 tools/sync_to_turso.py` once to seed it (it then runs automatically at the end of `run_daily.sh`).
+
+**3. On Vercel**, import `EduardoLoz12/Sports_Bet` (it auto-detects `vercel.json` / `api/index.py`). In Project Settings → Environment Variables add:
+```
+TURSO_DATABASE_URL=libsql://sports-agent-<org>.turso.io
+TURSO_AUTH_TOKEN=<read-only token>
+BANKROLL_START=...
+STAKE_HIGH=...
+STAKE_MED=...
+STAKE_LOW=...
+```
+Deploy. `dashboard/db.py` automatically switches from local SQLite to the Turso replica whenever `TURSO_DATABASE_URL` is set.
+
 ## Data sources (all free tier)
 
 - **api-sports.io** — national team stats (2023-2024 seasons)
