@@ -79,7 +79,16 @@ BANKROLL_START=
 ---
 
 ## Hosting
-Hetzner VPS. Cron triggers daily data fetch (6 AM PE time) + D-1 Telegram push (8 PM PE time day before match).
+Hetzner VPS (`/opt/sports-agent`, root@5.78.236.186). Cron triggers daily data fetch (6 AM PE time) + D-1 Telegram push (8 PM PE time day before match).
+
+**`/opt/sports-agent` is NOT a git checkout** — plain file-copy deploy. `git pull` there fails ("not a git repository"). Push code changes via sftp/scp.
+
+### Vercel read-only mirror
+`EduardoLoz12/Sports_Bet` deployed to Vercel as a read-only dashboard for phone/family access. Hetzner keeps the writable SQLite DB + cron pipeline; Vercel serves Supabase (Postgres, project `jvtmoztlbfxcxzbnedqv`, aws-1-us-east-2).
+
+- `tools/sync_to_supabase.py` — TRUNCATE + re-INSERT (via `psycopg2.extras.execute_values`, batched — `executemany` blows the pooler's 2min `statement_timeout` on the 4000+ row `player_stats` table) of `matches`/`predictions`/`bets`/`team_stats`/`team_extended_stats`/`player_stats`/`model_meta`. Runs at the end of `scripts/run_daily.sh`. Requires `SUPABASE_DB_URL` in Hetzner `.env`.
+- `dashboard/db.py` — `get_db()` reads Supabase (Postgres) only when `SUPABASE_DB_URL` is set **and** `VERCEL=1` (Vercel sets this automatically). On Hetzner, `SUPABASE_DB_URL` can be present (as the sync target) without the local dashboard switching off SQLite.
+- `api/index.py` + `vercel.json` — Vercel serverless entrypoint, minimal `api/requirements.txt` (flask, python-dotenv, psycopg2-binary — no numpy/pandas/scipy).
 
 ---
 
@@ -119,6 +128,9 @@ ANTHROPIC_API_KEY=
 # Server
 PORT=8000
 ENV=development
+
+# Supabase (Vercel read-replica sync target + Vercel dashboard read source)
+SUPABASE_DB_URL=postgresql://postgres.jvtmoztlbfxcxzbnedqv:<password>@aws-1-us-east-2.pooler.supabase.com:6543/postgres
 ```
 
 ---

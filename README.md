@@ -86,26 +86,24 @@ The Hetzner box keeps owning the cron pipeline + the writable SQLite DB.
 Vercel serves a read-only copy of the dashboard, fed by a Supabase (Postgres)
 replica that `tools/sync_to_supabase.py` pushes after every daily run.
 
-**1. Create the Supabase project (one-time, via supabase.com dashboard):**
-- New project (free tier)
-- SQL Editor → paste `supabase/schema.sql` → Run
-- Project Settings → Database → Connection string → URI (pooler, port 6543) → this is `SUPABASE_DB_URL`
+Supabase project is already created and seeded (schema applied,
+`SUPABASE_DB_URL` set in Hetzner `.env`, synced via `tools/sync_to_supabase.py`
+— runs automatically at the end of `run_daily.sh`).
 
-**2. On Hetzner**, add to `.env`:
+**Remaining step — on Vercel**, import `EduardoLoz12/Sports_Bet` (it
+auto-detects `vercel.json` / `api/index.py`). In Project Settings →
+Environment Variables add:
 ```
-SUPABASE_DB_URL=postgresql://postgres.xxxx:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
-```
-Run `python3 tools/sync_to_supabase.py` once to seed it (it then runs automatically at the end of `run_daily.sh`).
-
-**3. On Vercel**, import `EduardoLoz12/Sports_Bet` (it auto-detects `vercel.json` / `api/index.py`). In Project Settings → Environment Variables add:
-```
-SUPABASE_DB_URL=postgresql://postgres.xxxx:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres
+SUPABASE_DB_URL=postgresql://postgres.jvtmoztlbfxcxzbnedqv:<password>@aws-1-us-east-2.pooler.supabase.com:6543/postgres
 BANKROLL_START=...
 STAKE_HIGH=...
 STAKE_MED=...
 STAKE_LOW=...
 ```
-Deploy. `dashboard/db.py` switches to the Supabase replica when `SUPABASE_DB_URL` is set AND `VERCEL=1` (Vercel sets this automatically) — so Hetzner can also hold `SUPABASE_DB_URL` (as the sync target) without its own dashboard switching off local SQLite.
+(password from Hetzner `.env`). Deploy. `dashboard/db.py` switches to the
+Supabase replica when `SUPABASE_DB_URL` is set AND `VERCEL=1` (Vercel sets
+this automatically) — so Hetzner can also hold `SUPABASE_DB_URL` (as the sync
+target) without its own dashboard switching off local SQLite.
 
 ## Data sources (all free tier)
 
