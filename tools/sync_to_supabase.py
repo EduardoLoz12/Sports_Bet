@@ -11,6 +11,7 @@ import sqlite3
 from pathlib import Path
 
 import psycopg2
+from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -71,10 +72,9 @@ def sync_table(local, remote_cur, table, columns):
 
     local_cols = set(rows[0].keys())
     col_list = ", ".join(columns)
-    placeholders = ", ".join(["%s"] * len(columns))
-    insert_sql = f"INSERT INTO {table} ({col_list}) VALUES ({placeholders})"
+    insert_sql = f"INSERT INTO {table} ({col_list}) VALUES %s"
     data = [tuple(r[c] if c in local_cols else None for c in columns) for r in rows]
-    remote_cur.executemany(insert_sql, data)
+    execute_values(remote_cur, insert_sql, data, page_size=500)
     print(f"  {table}: {len(rows)} rows")
 
 
