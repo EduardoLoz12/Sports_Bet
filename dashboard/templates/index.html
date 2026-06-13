@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WC 2026 · Bet Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #0d0d12; color: #e0e0e0; padding: 20px 24px; max-width: 1500px; margin: 0 auto; }
+
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+.header h1 { color: #f0c040; font-size: 1.5rem; letter-spacing: -0.02em; }
+.last-update { font-size: 0.72rem; color: #555; }
+
+.kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 28px; }
+.kpi { background: #1a1a24; border-radius: 10px; padding: 16px; text-align: center; }
+.kpi .label { font-size: 0.68rem; color: #666; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+.kpi .value { font-size: 1.6rem; font-weight: 700; }
+.pos { color: #4caf82; } .neg { color: #e05252; } .neu { color: #e0e0e0; } .gold { color: #f0c040; }
+
+.section-title { font-size: 0.72rem; color: #666; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 16px; margin-top: 32px; border-bottom: 1px solid #1e1e28; padding-bottom: 8px; }
+.model-info { display: flex; flex-wrap: wrap; gap: 24px; background: #15151d; border: 1px solid #232330; border-radius: 8px; padding: 14px 20px; font-size: 0.78rem; color: #aaa; }
+.model-info .mi-item { display: flex; flex-direction: column; gap: 2px; }
+.model-info .mi-label { font-size: 0.62rem; color: #666; text-transform: uppercase; letter-spacing: 0.05em; }
+.model-info .mi-val { font-size: 0.95rem; color: #ddd; font-weight: 600; }
+.model-info .mi-val.pos { color: #4caf82; }
+
+/* ── Match cards ── */
+.matches-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 18px; }
+
+.match-card {
+  background: #1a1a24;
+  border-radius: 12px;
+  padding: 18px;
+  border-left: 3px solid #252535;
+  transition: border-color 0.2s;
+}
+.match-card.has-high { border-left-color: #4caf82; }
+.match-card.has-med  { border-left-color: #f0c040; }
+
+.match-header { margin-bottom: 14px; }
+.match-teams { font-size: 1.1rem; font-weight: 700; color: #fff; margin-bottom: 5px; }
+.match-meta { font-size: 0.72rem; color: #666; display: flex; gap: 10px; align-items: center; }
+.match-stage { background: #252535; border-radius: 4px; padding: 2px 7px; font-size: 0.65rem; color: #888; }
+
+/* ── Team stats table ── */
+.team-stats-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 0.78rem; }
+.team-stats-table th { color: #444; font-weight: 500; font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 5px; text-align: right; border-bottom: 1px solid #252535; }
+.team-stats-table th:first-child { text-align: left; }
+.team-stats-table td { padding: 5px 5px; vertical-align: middle; border-bottom: 1px solid #1a1a24; }
+.team-stats-table td:not(:first-child) { text-align: right; color: #aaa; }
+.team-name-cell { max-width: 100px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ddd; font-weight: 600; }
+.league-tag { display: block; font-size: 0.58rem; color: #555; font-weight: 400; }
+.form-badges { display: flex; gap: 2px; flex-wrap: nowrap; }
+.badge { width: 16px; height: 16px; border-radius: 2px; font-size: 0.55rem; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.badge-W { background: #1d4a2f; color: #4caf82; }
+.badge-D { background: #2a2a1a; color: #c8b84a; }
+.badge-L { background: #4a1d1d; color: #e05252; }
+.stat-val { font-size: 0.8rem; }
+.no-data-cell { color: #444; font-size: 0.7rem; }
+.rank-badge { background: #252535; color: #f0c040; font-size: 0.6rem; font-weight: 700; padding: 1px 4px; border-radius: 3px; margin-right: 3px; }
+
+/* ── Prediction section ── */
+.pred-section { margin-bottom: 14px; }
+.pred-section-title { font-size: 0.62rem; color: #555; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+
+.pred-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 8px 10px; background: #141420; border-radius: 8px; }
+.pred-icon { font-size: 1rem; flex-shrink: 0; width: 22px; }
+.pred-body { flex: 1; min-width: 0; }
+.pred-market { font-size: 0.6rem; color: #555; text-transform: uppercase; letter-spacing: 0.05em; }
+.pred-pick { font-size: 0.85rem; color: #ddd; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pred-reasoning { font-size: 0.65rem; color: #666; margin-top: 2px; }
+.pred-right { text-align: right; flex-shrink: 0; }
+.pred-pct { font-size: 1.1rem; font-weight: 700; display: block; }
+.pred-tier-badge { font-size: 0.6rem; font-weight: 700; padding: 2px 6px; border-radius: 3px; display: inline-block; }
+.tier-HIGH { background: #1d4a2f; color: #4caf82; }
+.tier-MED  { background: #2a2800; color: #f0c040; }
+.tier-LOW  { background: #252535; color: #666; }
+.pct-HIGH { color: #4caf82; }
+.pct-MED  { color: #f0c040; }
+.pct-LOW  { color: #555; }
+
+/* ── Bet recommendations ── */
+.bets-section { border-top: 1px solid #252535; padding-top: 12px; }
+.bet-title { font-size: 0.62rem; color: #555; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+.bet-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: #141420; border-radius: 6px; margin-bottom: 5px; }
+.bet-left { flex: 1; }
+.bet-pick { font-size: 0.82rem; color: #ddd; font-weight: 600; }
+.bet-detail { font-size: 0.65rem; color: #666; }
+.bet-right { text-align: right; }
+.bet-stake { font-size: 0.9rem; font-weight: 700; display: block; }
+.stake-HIGH { color: #4caf82; } .stake-MED { color: #f0c040; }
+
+/* ── Tables ── */
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+th { color: #666; font-weight: 500; text-transform: uppercase; font-size: 0.68rem; letter-spacing: 0.05em; padding: 8px 12px; text-align: left; border-bottom: 1px solid #252535; }
+td { padding: 10px 12px; border-bottom: 1px solid #1e1e28; }
+tr:last-child td { border-bottom: none; }
+
+.chart-wrap { height: 200px; }
+.no-data { color: #444; font-size: 0.85rem; text-align: center; padding: 32px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>⚽ WC 2026 · Bet Dashboard</h1>
+  <span class="last-update" id="last-update"></span>
+</div>
+
+<div class="kpi-row">
+  <div class="kpi"><div class="label">Bankroll</div><div class="value gold" id="kpi-bankroll">—</div></div>
+  <div class="kpi"><div class="label">Profit</div><div class="value" id="kpi-profit">—</div></div>
+  <div class="kpi"><div class="label">ROI</div><div class="value" id="kpi-roi">—</div></div>
+  <div class="kpi"><div class="label">Win Rate</div><div class="value" id="kpi-wr">—</div></div>
+  <div class="kpi"><div class="label">Apuestas</div><div class="value neu" id="kpi-bets">—</div></div>
+  <div class="kpi"><div class="label">Pendientes</div><div class="value neu" id="kpi-pending">—</div></div>
+</div>
+
+<div class="section-title">Modelo Predictivo</div>
+<div id="model-info" class="model-info">Cargando información del modelo…</div>
+
+<div class="section-title">Próximos Partidos · Predicciones</div>
+<div class="matches-grid" id="matches-grid">
+  <div class="no-data">Cargando predicciones…</div>
+</div>
+
+<div class="section-title">ROI por Mercado</div>
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Mercado</th><th>Apuestas</th><th>Ganadas</th><th>Win%</th><th>Profit S/.</th><th>ROI%</th></tr></thead>
+    <tbody id="market-body"><tr><td colspan="6" style="color:#444;text-align:center;padding:20px">Sin apuestas registradas aún</td></tr></tbody>
+  </table>
+</div>
+
+<div class="section-title">Evolución Bankroll</div>
+<div class="chart-wrap"><canvas id="bankroll-chart"></canvas></div>
+
+<script>
+const fmtMoney = v => v >= 0 ? `+S/.${v.toFixed(2)}` : `-S/.${Math.abs(v).toFixed(2)}`;
+const fmtPct   = v => v >= 0 ? `+${v.toFixed(1)}%` : `${v.toFixed(1)}%`;
+
+const MARKET_ICON  = { winner: '🏆', probabilities: '🔢', scoreline: '🎯', corners: '📐', cards: '🟨', scorer: '⚽', '1h_scorer': '⚡', '2h_scorer': '💫' };
+const MARKET_LABEL = { winner: 'Ganador', probabilities: 'Probabilidades 1X2', scoreline: 'Marcador probable', corners: 'Corners', cards: 'Tarjetas', scorer: 'Goleador', '1h_scorer': '1er Tiempo', '2h_scorer': '2do Tiempo' };
+// Markets ordered by relevance for display
+const MARKET_ORDER = ['winner', 'probabilities', 'scoreline', 'corners', 'cards', 'scorer', '1h_scorer', '2h_scorer'];
+
+function formBadges(form) {
+  if (!form || !form.length) return '<span style="color:#444;font-size:0.7rem">—</span>';
+  return '<div class="form-badges">' + form.map(r => `<span class="badge badge-${r}">${r}</span>`).join('') + '</div>';
+}
+
+function statVal(v, suffix = '') {
+  if (!v && v !== 0) return '<span class="no-data-cell">—</span>';
+  if (v === 0) return '<span class="no-data-cell">N/A</span>';
+  return `<span class="stat-val">${v}${suffix}</span>`;
+}
+
+function makeReasoning(p, home, away, hs, as_) {
+  const m = p.market;
+  if (m === 'probabilities') {
+    return `Modelo Dixon-Coles · distribución completa 1X2 (no solo el favorito)`;
+  }
+  if (m === 'scoreline') {
+    return `Resultado más probable según grilla de Poisson bivariada (λ = goles esperados local, μ = visita)`;
+  }
+  if (m === 'winner') {
+    const winner = p.pick;
+    const loser  = winner === home ? away : home;
+    const wStats = winner === home ? hs : as_;
+    const lStats = winner === home ? as_ : hs;
+    if (!wStats) return 'Un equipo sin datos — defaults aplicados';
+    const gfDiff = ((wStats.gf || 0) - (lStats?.gf || 0)).toFixed(1);
+    const league = wStats.league || '';
+    const stars  = wStats.league_stars || '';
+    let txt = `${winner} gf: ${wStats.gf || '?'} · ga: ${wStats.ga || '?'}`;
+    if (league) txt += ` · Stats de ${league} ${stars}`;
+    if (lStats?.league && lStats.league !== wStats.league)
+      txt += ` vs ${lStats.league} ${lStats.league_stars || ''}`;
+    return txt;
+  }
+  if (m === 'corners') {
+    const hc = hs?.corners_for || 0;
+    const ac = as_?.corners_for || 0;
+    if (hc === 0 && ac === 0) return 'Sin datos de corners — usando proxy de goles';
+    return `${home}: ${hc || '?'} c/p for · ${away}: ${ac || '?'} c/p for`;
+  }
+  if (m === 'cards') {
+    const hc = hs?.cards || 0;
+    const ac = as_?.cards || 0;
+    if (hc === 0 && ac === 0) return 'Sin datos de tarjetas en DB aún';
+    return `${home}: ${hc}/p · ${away}: ${ac}/p · esperadas: ${(hc + ac).toFixed(1)}`;
+  }
+  if (m === 'scorer') {
+    return `Goleador más probable del equipo local`;
+  }
+  return '';
+}
+
+function buildMatchCard(m) {
+  const hs  = m.home_stats;
+  const as_ = m.away_stats;
+  const hasHigh = m.predictions.some(p => p.tier === 'HIGH');
+  const hasMed  = m.predictions.some(p => p.tier === 'MED');
+  const cls = hasHigh ? 'has-high' : hasMed ? 'has-med' : '';
+
+  // No predictions yet
+  if (!m.predictions || !m.predictions.length) {
+    return `<div class="match-card">
+      <div class="match-header">
+        <div class="match-teams">${m.home} vs ${m.away}</div>
+        <div class="match-meta"><span>📅 ${m.kickoff_pe}</span><span class="match-stage">${m.stage}</span></div>
+      </div>
+      <div style="color:#555;font-size:0.78rem;padding:10px 0">
+        ⏳ Stats pendientes — cron corre 6:00 AM PE
+      </div>
+    </div>`;
+  }
+
+  // Team stats table
+  const hasAnyStats = hs || as_;
+  let statsHtml = '';
+  if (hasAnyStats) {
+    const pct = v => v != null ? `${v}%` : '—';
+    const num = v => v != null && v !== 0 ? v : '—';
+
+    const teamRow = (name, s) => {
+      if (!s) return `<tr>
+        <td class="team-name-cell" colspan="9" style="color:#444">Sin datos — ${name}</td>
+      </tr>`;
+      const form5 = (s.form || []).slice(-5);
+
+      const rankStr  = s.fifa_rank  ? `<span class="rank-badge">#${s.fifa_rank}</span>` : '';
+      const wc_stars = s.wc_titles  ? '★'.repeat(Math.min(s.wc_titles, 5)) : '';
+      const cornersStr = s.corners_for > 0 ? `${s.corners_for}/${s.corners_against}` : '—';
+      const cardsStr   = s.cards > 0 ? s.cards : '—';
+
+      return `<tr>
+        <td class="team-name-cell">
+          ${rankStr} ${name}
+          <span class="league-tag">${s.confederation || ''} ${wc_stars ? '· WC:' + wc_stars : ''}</span>
+        </td>
+        <td>${formBadges(form5)}</td>
+        <td class="${(s.win_pct||0)>=60?'pos':(s.win_pct||0)>=40?'':'neg'}">${pct(s.win_pct)}</td>
+        <td>${pct(s.draw_pct)}</td>
+        <td class="${(s.loss_pct||0)>=40?'neg':''}">${pct(s.loss_pct)}</td>
+        <td>${pct(s.clean_sheet_pct)}</td>
+        <td class="${(s.big_win_pct||0)>=20?'pos':''}">${pct(s.big_win_pct)}</td>
+        <td>${cornersStr}</td>
+        <td>${cardsStr}</td>
+      </tr>`;
+    };
+    statsHtml = `
+      <table class="team-stats-table">
+        <thead><tr>
+          <th>Equipo</th>
+          <th>Forma 5</th>
+          <th>W%</th>
+          <th>D%</th>
+          <th>L%</th>
+          <th>CS%</th>
+          <th>3+W%</th>
+          <th>Corners</th>
+          <th>🟨</th>
+        </tr></thead>
+        <tbody>
+          ${teamRow(m.home, hs)}
+          ${teamRow(m.away, as_)}
+        </tbody>
+      </table>`;
+  }
+
+  // Predictions only — no bet recommendations (user decides stakes)
+  const sortedPreds = [...m.predictions].sort(
+    (a, b) => MARKET_ORDER.indexOf(a.market) - MARKET_ORDER.indexOf(b.market)
+  );
+  const predHtml = sortedPreds.map(p => {
+    const icon = MARKET_ICON[p.market] || '📊';
+    const label = MARKET_LABEL[p.market] || p.market;
+    const reasoning = makeReasoning(p, m.home, m.away, hs, as_);
+    return `<div class="pred-row">
+      <div class="pred-icon">${icon}</div>
+      <div class="pred-body">
+        <div class="pred-market">${label}</div>
+        <div class="pred-pick">${p.pick}</div>
+        ${reasoning ? `<div class="pred-reasoning">${reasoning}</div>` : ''}
+      </div>
+      <div class="pred-right">
+        <span class="pred-pct pct-${p.tier}">${p.confidence}%</span>
+        <span class="pred-tier-badge tier-${p.tier}">${p.tier}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  return `<div class="match-card ${cls}">
+    <div class="match-header">
+      <div class="match-teams">${m.home} vs ${m.away}</div>
+      <div class="match-meta">
+        <span>📅 ${m.kickoff_pe}</span>
+        <span class="match-stage">${m.stage}</span>
+      </div>
+    </div>
+    ${statsHtml}
+    <div class="pred-section">
+      <div class="pred-section-title">Predicciones del modelo</div>
+      ${predHtml}
+    </div>
+  </div>`;
+}
+
+async function loadAll() {
+  try {
+    const s = await fetch('/api/summary').then(r => r.json());
+    document.getElementById('kpi-bankroll').textContent = `S/.${s.bankroll_now.toFixed(0)}`;
+    const profitEl = document.getElementById('kpi-profit');
+    profitEl.textContent = fmtMoney(s.total_profit);
+    profitEl.className = 'value ' + (s.total_profit >= 0 ? 'pos' : 'neg');
+    const roiEl = document.getElementById('kpi-roi');
+    roiEl.textContent = fmtPct(s.roi_pct);
+    roiEl.className = 'value ' + (s.roi_pct >= 0 ? 'pos' : 'neg');
+    const wrEl = document.getElementById('kpi-wr');
+    wrEl.textContent = `${s.win_rate}%`;
+    wrEl.className = 'value ' + (s.win_rate >= 50 ? 'pos' : s.win_rate > 0 ? 'neg' : 'neu');
+    document.getElementById('kpi-bets').textContent = s.total_bets;
+    document.getElementById('kpi-pending').textContent = s.pending;
+
+    const mi = await fetch('/api/model_info').then(r => r.json());
+    const miEl = document.getElementById('model-info');
+    if (mi.available) {
+      miEl.innerHTML = `
+        <div class="mi-item"><span class="mi-label">Modelo</span><span class="mi-val">Dixon-Coles (Poisson bivariada)</span></div>
+        <div class="mi-item"><span class="mi-label">Equipos entrenados</span><span class="mi-val">${mi.n_teams}</span></div>
+        <div class="mi-item"><span class="mi-label">Partidos de entrenamiento</span><span class="mi-val">${mi.n_train ?? '—'}</span></div>
+        <div class="mi-item"><span class="mi-label">Ventaja de local (γ)</span><span class="mi-val">${mi.gamma}</span></div>
+        <div class="mi-item"><span class="mi-label">Corrección DC (ρ)</span><span class="mi-val">${mi.rho}</span></div>
+        <div class="mi-item"><span class="mi-label">RPS (hold-out, ${mi.holdout_n ?? '—'} partidos)</span><span class="mi-val pos">${mi.rps}</span></div>
+        <div class="mi-item"><span class="mi-label">RPS ingenuo (baseline)</span><span class="mi-val">${mi.naive_rps}</span></div>
+        <div class="mi-item"><span class="mi-label">Mejora vs. baseline</span><span class="mi-val pos">+${mi.skill_pct}%</span></div>
+      `;
+    } else {
+      miEl.textContent = 'Modelo aún no entrenado — corre tools/train_model.py';
+    }
+
+    const matches = await fetch('/api/upcoming').then(r => r.json());
+    const grid = document.getElementById('matches-grid');
+    grid.innerHTML = matches.length
+      ? matches.map(buildMatchCard).join('')
+      : '<div class="no-data">Sin predicciones — correr scoring_model.py</div>';
+
+    const markets = await fetch('/api/by_market').then(r => r.json());
+    const tbody = document.getElementById('market-body');
+    if (markets.length) {
+      tbody.innerHTML = markets.map(r => {
+        const roiCls = r.roi >= 0 ? 'pos' : 'neg';
+        const proCls = r.profit >= 0 ? 'pos' : 'neg';
+        return `<tr>
+          <td>${r.market}</td><td>${r.bets}</td><td>${r.wins}</td>
+          <td class="${r.win_rate>=50?'pos':'neg'}">${r.win_rate}%</td>
+          <td class="${proCls}">${fmtMoney(r.profit)}</td>
+          <td class="${roiCls}">${fmtPct(r.roi)}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    const hist = await fetch('/api/bankroll_history').then(r => r.json());
+    const existingChart = Chart.getChart('bankroll-chart');
+    if (existingChart) existingChart.destroy();
+    new Chart(document.getElementById('bankroll-chart').getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: hist.map(h => h.date),
+        datasets: [{ label: 'Bankroll S/.', data: hist.map(h => h.bankroll), borderColor: '#f0c040', backgroundColor: 'rgba(240,192,64,0.08)', tension: 0.3, pointRadius: 3, fill: true }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { color: '#555', font: { size: 10 } }, grid: { color: '#1e1e28' } },
+          y: { ticks: { color: '#555', font: { size: 10 } }, grid: { color: '#1e1e28' } }
+        }
+      }
+    });
+
+    document.getElementById('last-update').textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-PE');
+  } catch(e) {
+    console.error('Dashboard error:', e);
+  }
+}
+
+loadAll();
+setInterval(loadAll, 120000);
+</script>
+</body>
+</html>
