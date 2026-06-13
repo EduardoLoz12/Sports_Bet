@@ -101,6 +101,16 @@ tr:last-child td { border-bottom: none; }
 
 .chart-wrap { height: 200px; }
 .no-data { color: #444; font-size: 0.85rem; text-align: center; padding: 32px; }
+
+.team-stats-wrap { overflow-x: auto; margin-bottom: 14px; -webkit-overflow-scrolling: touch; }
+.team-stats-wrap .team-stats-table { margin-bottom: 0; }
+
+@media (max-width: 480px) {
+  body { padding: 12px; }
+  .matches-grid { grid-template-columns: 1fr; }
+  .team-stats-table { font-size: 0.7rem; min-width: 480px; }
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+}
 </style>
 </head>
 <body>
@@ -253,6 +263,7 @@ function buildMatchCard(m) {
       </tr>`;
     };
     statsHtml = `
+      <div class="team-stats-wrap">
       <table class="team-stats-table">
         <thead><tr>
           <th>Equipo</th>
@@ -269,7 +280,8 @@ function buildMatchCard(m) {
           ${teamRow(m.home, hs)}
           ${teamRow(m.away, as_)}
         </tbody>
-      </table>`;
+      </table>
+      </div>`;
   }
 
   // Predictions only — no bet recommendations (user decides stakes)
