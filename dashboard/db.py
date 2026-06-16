@@ -40,6 +40,13 @@ CREATE TABLE IF NOT EXISTS model_meta (
     key TEXT PRIMARY KEY,
     json TEXT
 );
+CREATE TABLE IF NOT EXISTS match_sentiment (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id TEXT UNIQUE,
+    home_team TEXT, away_team TEXT,
+    home_win_pct INTEGER, draw_pct INTEGER, away_win_pct INTEGER,
+    summary TEXT, top_themes TEXT, post_count INTEGER, fetched_at TEXT
+);
 """
 
 _PLACEHOLDER_RE = re.compile(r"\?")
