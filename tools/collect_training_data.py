@@ -84,6 +84,38 @@ def init_db(conn):
     conn.commit()
 
 
+def inject_wc2026_results(conn, today) -> list:
+    """Inject finished WC 2026 matches from local DB with max weight (2x boost)."""
+    existing_cols = {r[1] for r in conn.execute("PRAGMA table_info(matches)").fetchall()}
+    if "home_score" not in existing_cols:
+        return []
+
+    rows = conn.execute("""
+        SELECT home_team, away_team, kickoff_utc, home_score, away_score
+        FROM matches
+        WHERE status='FINISHED'
+          AND home_score IS NOT NULL AND away_score IS NOT NULL
+          AND home_team IS NOT NULL AND away_team IS NOT NULL
+    """).fetchall()
+
+    records = []
+    for r in rows:
+        match_date = r[2][:10]
+        days_ago = max(0, (today - pd.Timestamp(match_date)).days)
+        time_w = np.exp(-PHI * days_ago)
+        total_w = round(1.0 * time_w * 2.0, 4)  # comp_weight=1.0, 2x WC2026 boost
+        records.append((
+            match_date,
+            r[0], r[1],
+            int(r[3]), int(r[4]),
+            "FIFA World Cup 2026",
+            0, 1.0, round(time_w, 4), total_w, 1, 1,
+        ))
+    if records:
+        print(f"  Injecting {len(records)} WC 2026 finished matches (2x weight)")
+    return records
+
+
 def main():
     if not CACHE.exists():
         raise FileNotFoundError(
@@ -154,6 +186,9 @@ def main():
             int(row["home_is_wc"]),
             int(row["away_is_wc"]),
         ))
+
+    wc2026 = inject_wc2026_results(conn, today)
+    records.extend(wc2026)
 
     conn.executemany("""
         INSERT INTO training_matches

@@ -23,9 +23,17 @@ def init_db(conn: sqlite3.Connection):
             kickoff_utc TEXT,
             group_stage TEXT,
             stage TEXT,
-            status TEXT DEFAULT 'SCHEDULED'
+            status TEXT DEFAULT 'SCHEDULED',
+            home_score INTEGER,
+            away_score INTEGER
         )
     """)
+    # Migrate existing tables that lack score columns
+    existing = {r[1] for r in conn.execute("PRAGMA table_info(matches)").fetchall()}
+    if "home_score" not in existing:
+        conn.execute("ALTER TABLE matches ADD COLUMN home_score INTEGER")
+    if "away_score" not in existing:
+        conn.execute("ALTER TABLE matches ADD COLUMN away_score INTEGER")
     conn.commit()
 
 
@@ -88,13 +96,20 @@ def upsert_match(conn: sqlite3.Connection, m: dict):
     stage = m.get("stage", "GROUP_STAGE")
     group = m.get("group") or stage
 
+    score = m.get("score", {})
+    ft = score.get("fullTime", {})
+    home_score = ft.get("home")
+    away_score = ft.get("away")
+
     conn.execute("""
         INSERT INTO matches (match_id, home_team, away_team, home_team_id, away_team_id,
-                             kickoff_utc, group_stage, stage, status)
-        VALUES (?,?,?,?,?,?,?,?,?)
+                             kickoff_utc, group_stage, stage, status, home_score, away_score)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(match_id) DO UPDATE SET
             status=excluded.status,
-            kickoff_utc=excluded.kickoff_utc
+            kickoff_utc=excluded.kickoff_utc,
+            home_score=excluded.home_score,
+            away_score=excluded.away_score
     """, (
         str(m["id"]),
         home.get("name", ""),
@@ -105,6 +120,8 @@ def upsert_match(conn: sqlite3.Connection, m: dict):
         group,
         stage,
         m.get("status", "SCHEDULED"),
+        home_score,
+        away_score,
     ))
 
 

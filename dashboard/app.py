@@ -289,6 +289,25 @@ def upcoming():
                     "odds":  p["odds"],
                 })
 
+        # Reddit sentiment (optional — populated by fetch_reddit_sentiment.py)
+        sentiment = None
+        try:
+            s = conn.execute(
+                "SELECT home_win_pct, draw_pct, away_win_pct, summary, top_themes, post_count "
+                "FROM match_sentiment WHERE match_id=?", (mid,)
+            ).fetchone()
+            if s:
+                sentiment = {
+                    "home_win_pct": s["home_win_pct"],
+                    "draw_pct":     s["draw_pct"],
+                    "away_win_pct": s["away_win_pct"],
+                    "summary":      s["summary"],
+                    "top_themes":   json.loads(s["top_themes"] or "[]"),
+                    "post_count":   s["post_count"],
+                }
+        except Exception:
+            pass
+
         result.append({
             "match_id":    mid,
             "home":        m["home_team"],
@@ -300,6 +319,7 @@ def upcoming():
             "away_stats":  away_stats,
             "predictions": preds_out,
             "bets":        bets_out,
+            "sentiment":   sentiment,
         })
 
     conn.close()

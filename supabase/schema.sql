@@ -16,8 +16,13 @@ CREATE TABLE IF NOT EXISTS matches (
     kickoff_utc TEXT,
     group_stage TEXT,
     stage TEXT,
-    status TEXT DEFAULT 'SCHEDULED'
+    status TEXT DEFAULT 'SCHEDULED',
+    home_score INTEGER,
+    away_score INTEGER
 );
+-- Migrate existing Supabase instance (safe to re-run):
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS home_score INTEGER;
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS away_score INTEGER;
 
 CREATE TABLE IF NOT EXISTS predictions (
     id SERIAL PRIMARY KEY,
@@ -102,4 +107,19 @@ CREATE TABLE IF NOT EXISTS player_stats (
 CREATE TABLE IF NOT EXISTS model_meta (
     key TEXT PRIMARY KEY,
     json TEXT
+);
+
+-- Reddit crowd sentiment per match (populated by tools/fetch_reddit_sentiment.py).
+CREATE TABLE IF NOT EXISTS match_sentiment (
+    id SERIAL PRIMARY KEY,
+    match_id TEXT UNIQUE,
+    home_team TEXT,
+    away_team TEXT,
+    home_win_pct INTEGER,
+    draw_pct INTEGER,
+    away_win_pct INTEGER,
+    summary TEXT,
+    top_themes TEXT,
+    post_count INTEGER,
+    fetched_at TEXT
 );

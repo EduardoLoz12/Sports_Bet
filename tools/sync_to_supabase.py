@@ -25,7 +25,7 @@ SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL")
 TABLE_COLUMNS = {
     "matches": [
         "match_id", "home_team", "away_team", "home_team_id", "away_team_id",
-        "kickoff_utc", "group_stage", "stage", "status",
+        "kickoff_utc", "group_stage", "stage", "status", "home_score", "away_score",
     ],
     "predictions": [
         "match_id", "market", "pick", "confidence", "odds", "stake_tier", "created_at",
@@ -51,6 +51,11 @@ TABLE_COLUMNS = {
         "player_id", "player_name", "team_id", "team", "stat_date",
         "goals_total", "assists", "penalties", "goals_per90",
         "minutes_played", "appearances", "cards_yellow", "cards_red", "fetched_at",
+    ],
+    "match_sentiment": [
+        "match_id", "home_team", "away_team",
+        "home_win_pct", "draw_pct", "away_win_pct",
+        "summary", "top_themes", "post_count", "fetched_at",
     ],
 }
 

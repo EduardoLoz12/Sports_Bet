@@ -105,6 +105,24 @@ tr:last-child td { border-bottom: none; }
 .team-stats-wrap { overflow-x: auto; margin-bottom: 14px; -webkit-overflow-scrolling: touch; }
 .team-stats-wrap .team-stats-table { margin-bottom: 0; }
 
+/* ── Reddit sentiment ── */
+.sentiment-block { border-top: 1px solid #252535; padding-top: 12px; margin-top: 4px; }
+.sentiment-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.sentiment-label { font-size: 0.6rem; color: #555; text-transform: uppercase; letter-spacing: 0.06em; }
+.sentiment-posts { font-size: 0.58rem; color: #444; }
+.sentiment-bar { display: flex; height: 18px; border-radius: 4px; overflow: hidden; margin-bottom: 7px; }
+.sbar-home { background: #1d4a2f; display: flex; align-items: center; justify-content: center; }
+.sbar-draw { background: #2a2a1a; display: flex; align-items: center; justify-content: center; }
+.sbar-away { background: #4a1d1d; display: flex; align-items: center; justify-content: center; }
+.sbar-pct  { font-size: 0.6rem; font-weight: 700; color: #ccc; white-space: nowrap; padding: 0 3px; }
+.sentiment-labels { display: flex; justify-content: space-between; font-size: 0.6rem; margin-bottom: 6px; }
+.slabel-home { color: #4caf82; }
+.slabel-draw { color: #c8b84a; text-align: center; flex: 1; }
+.slabel-away { color: #e05252; text-align: right; }
+.sentiment-summary { font-size: 0.65rem; color: #666; font-style: italic; margin-bottom: 5px; }
+.sentiment-themes { display: flex; flex-wrap: wrap; gap: 4px; }
+.theme-tag { font-size: 0.58rem; background: #1a1a2e; color: #666; border-radius: 3px; padding: 2px 6px; }
+
 @media (max-width: 480px) {
   body { padding: 12px; }
   .matches-grid { grid-template-columns: 1fr; }
@@ -306,6 +324,34 @@ function buildMatchCard(m) {
     </div>`;
   }).join('');
 
+  // Sentiment block
+  let sentimentHtml = '';
+  if (m.sentiment) {
+    const s = m.sentiment;
+    const homeW = Math.max(s.home_win_pct, 5);
+    const drawW = Math.max(s.draw_pct, 5);
+    const awayW = Math.max(s.away_win_pct, 5);
+    const themes = (s.top_themes || []).map(t => `<span class="theme-tag">${t}</span>`).join('');
+    sentimentHtml = `
+      <div class="sentiment-block">
+        <div class="sentiment-header">
+          <span class="sentiment-label">🟠 Reddit crowd · ${s.post_count} comentarios</span>
+        </div>
+        <div class="sentiment-bar">
+          <div class="sbar-home" style="flex:${homeW}"><span class="sbar-pct">${s.home_win_pct}%</span></div>
+          <div class="sbar-draw" style="flex:${drawW}"><span class="sbar-pct">${s.draw_pct}%</span></div>
+          <div class="sbar-away" style="flex:${awayW}"><span class="sbar-pct">${s.away_win_pct}%</span></div>
+        </div>
+        <div class="sentiment-labels">
+          <span class="slabel-home">${m.home}</span>
+          <span class="slabel-draw">Empate</span>
+          <span class="slabel-away">${m.away}</span>
+        </div>
+        ${s.summary ? `<div class="sentiment-summary">"${s.summary}"</div>` : ''}
+        ${themes ? `<div class="sentiment-themes">${themes}</div>` : ''}
+      </div>`;
+  }
+
   return `<div class="match-card ${cls}">
     <div class="match-header">
       <div class="match-teams">${m.home} vs ${m.away}</div>
@@ -319,6 +365,7 @@ function buildMatchCard(m) {
       <div class="pred-section-title">Predicciones del modelo</div>
       ${predHtml}
     </div>
+    ${sentimentHtml}
   </div>`;
 }
 
