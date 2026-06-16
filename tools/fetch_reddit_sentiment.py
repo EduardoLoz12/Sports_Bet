@@ -130,7 +130,14 @@ def analyze_with_haiku(ac, home, away, articles):
         }],
     )
 
-    data = json.loads(resp.content[0].text.strip())
+    raw = resp.content[0].text.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip()
+    data = json.loads(raw)
 
     # Normalize to sum=100
     total = data["home_win_pct"] + data["draw_pct"] + data["away_win_pct"]
