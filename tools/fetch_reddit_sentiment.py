@@ -1,13 +1,13 @@
 """
-Fetch Reddit sentiment for upcoming WC matches using PRAW + Claude Haiku.
+Fetch news sentiment for upcoming WC matches using GNews API + Claude Haiku.
 
-Searches r/worldcup and r/soccer for posts about each match in the next 3 days.
-Requires a Reddit "script" app (free): reddit.com/prefs/apps → create app → type: script.
-Analyzes comments with Haiku to get crowd win-probability split + key themes.
+Searches GNews for recent articles about each match in the next 3 days.
+Analyzes with Haiku to get crowd win-probability split + key themes.
 Cached per match_id for 12h — re-fetched on each daily cron run before kickoff.
 
-Requires in .env: REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, REDDIT_USER_AGENT, ANTHROPIC_API_KEY
-Install:          pip install praw anthropic
+Requires in .env: GNEWS_API_KEY, ANTHROPIC_API_KEY
+Free tier: 100 req/day at gnews.io — sign up with email, instant.
+Install:   pip install anthropic requests
 """
 import json
 import os
@@ -16,20 +16,17 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DB_PATH = Path(__file__).parent.parent / "database" / "sports_agent.db"
 
-REDDIT_CLIENT_ID     = os.getenv("REDDIT_CLIENT_ID")
-REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
-REDDIT_USER_AGENT    = os.getenv("REDDIT_USER_AGENT", "sports-agent/1.0")
-ANTHROPIC_API_KEY    = os.getenv("ANTHROPIC_API_KEY")
+GNEWS_API_KEY     = os.getenv("GNEWS_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
-SUBREDDITS     = ["worldcup", "soccer"]
-MAX_POSTS      = 5
-MAX_COMMENTS   = 50
+MAX_ARTICLES   = 10
 CACHE_HOURS    = 12
 LOOKAHEAD_DAYS = 3
 
@@ -80,32 +77,35 @@ def already_fresh(conn, match_id):
         return False
 
 
-def fetch_comments(reddit, home, away):
-    """Search r/worldcup + r/soccer via PRAW, return list of comment bodies."""
-    query = f"{home} {away}"
-    comments = []
+def fetch_articles(home, away):
+    """Search GNews for recent articles about this match."""
+    query = f"{home} {away} World Cup 2026"
+    url = "https://gnews.io/api/v4/search"
+    try:
+        r = requests.get(url, params={
+            "q": query,
+            "lang": "en",
+            "max": MAX_ARTICLES,
+            "sortby": "relevance",
+            "token": GNEWS_API_KEY,
+        }, timeout=10)
+        r.raise_for_status()
+        articles = r.json().get("articles", [])
+        texts = []
+        for a in articles:
+            title = a.get("title", "")
+            desc  = a.get("description", "")
+            if title:
+                texts.append(f"{title}. {desc}".strip())
+        return texts
+    except Exception as e:
+        print(f"    GNews error: {e}")
+        return []
 
-    for sub in SUBREDDITS:
-        try:
-            subreddit = reddit.subreddit(sub)
-            for post in subreddit.search(query, sort="relevance", time_filter="week", limit=MAX_POSTS):
-                post.comments.replace_more(limit=0)
-                for c in post.comments.list()[:15]:
-                    if hasattr(c, "body") and 20 < len(c.body) < 600:
-                        comments.append(c.body)
-                if len(comments) >= MAX_COMMENTS:
-                    break
-        except Exception as e:
-            print(f"    Reddit r/{sub} error: {e}")
-        if len(comments) >= MAX_COMMENTS:
-            break
 
-    return comments[:MAX_COMMENTS]
-
-
-def analyze_with_haiku(ac, home, away, comments):
-    """Single Haiku call: extract crowd sentiment as structured JSON."""
-    sample = "\n---\n".join(comments[:30])
+def analyze_with_haiku(ac, home, away, articles):
+    """Single Haiku call: extract sentiment as structured JSON."""
+    sample = "\n---\n".join(articles[:MAX_ARTICLES])
 
     resp = ac.messages.create(
         model="claude-haiku-4-5-20251001",
@@ -113,15 +113,16 @@ def analyze_with_haiku(ac, home, away, comments):
         messages=[{
             "role": "user",
             "content": (
-                f"Analyze these Reddit comments about the upcoming match "
+                f"Analyze these news headlines/descriptions about the upcoming match "
                 f"{home} vs {away}.\n\n"
-                f"Comments:\n{sample}\n\n"
+                f"Articles:\n{sample}\n\n"
+                "Based on the tone and content, estimate the public/media sentiment.\n"
                 "Respond with ONLY valid JSON (no markdown, no explanation):\n"
                 "{\n"
-                f'  "home_win_pct": <integer 0-100, crowd confidence {home} wins>,\n'
+                f'  "home_win_pct": <integer 0-100, media confidence {home} wins>,\n'
                 '  "draw_pct": <integer 0-100>,\n'
-                f'  "away_win_pct": <integer 0-100, crowd confidence {away} wins>,\n'
-                '  "summary": "<1-2 sentence crowd sentiment summary>",\n'
+                f'  "away_win_pct": <integer 0-100, media confidence {away} wins>,\n'
+                '  "summary": "<1-2 sentence media sentiment summary>",\n'
                 '  "top_themes": ["<theme1>", "<theme2>", "<theme3>"]\n'
                 "}\n"
                 "The three _pct values must sum to exactly 100."
@@ -142,21 +143,14 @@ def analyze_with_haiku(ac, home, away, comments):
 
 
 def main():
-    if not REDDIT_CLIENT_ID or not REDDIT_CLIENT_SECRET:
-        print("REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET not set — skipping sentiment")
+    if not GNEWS_API_KEY:
+        print("GNEWS_API_KEY not set — skipping sentiment")
         return
     if not ANTHROPIC_API_KEY:
         print("ANTHROPIC_API_KEY not set — skipping sentiment")
         return
 
-    import praw
     import anthropic
-
-    reddit = praw.Reddit(
-        client_id=REDDIT_CLIENT_ID,
-        client_secret=REDDIT_CLIENT_SECRET,
-        user_agent=REDDIT_USER_AGENT,
-    )
     ac = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     conn = sqlite3.connect(DB_PATH)
@@ -173,16 +167,16 @@ def main():
             print(f"  {home} vs {away}: cached (<{CACHE_HOURS}h), skip")
             continue
 
-        print(f"  {home} vs {away}: fetching Reddit…")
-        comments = fetch_comments(reddit, home, away)
-        print(f"    {len(comments)} comments")
+        print(f"  {home} vs {away}: fetching GNews…")
+        articles = fetch_articles(home, away)
+        print(f"    {len(articles)} articles")
 
-        if not comments:
-            print(f"    no comments found — skip")
+        if not articles:
+            print(f"    no articles found — skip")
             continue
 
         try:
-            result = analyze_with_haiku(ac, home, away, comments)
+            result = analyze_with_haiku(ac, home, away, articles)
         except Exception as e:
             print(f"    Haiku error: {e} — skip")
             continue
@@ -205,7 +199,7 @@ def main():
             result["home_win_pct"], result["draw_pct"], result["away_win_pct"],
             result["summary"],
             json.dumps(result["top_themes"]),
-            len(comments),
+            len(articles),
             datetime.now(timezone.utc).isoformat(),
         ))
         conn.commit()
