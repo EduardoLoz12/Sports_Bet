@@ -28,7 +28,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 
 MAX_ARTICLES   = 10
 CACHE_HOURS    = 12
-LOOKAHEAD_DAYS = 3
+LOOKAHEAD_DAYS = 1  # GNews free = 10 req/day; only fetch tomorrow's matches
 
 
 def init_db(conn):
@@ -77,9 +77,14 @@ def already_fresh(conn, match_id):
         return False
 
 
+def _clean(name):
+    """Remove chars that break GNews query strings."""
+    return name.replace("-", " ").replace("'", "")
+
+
 def fetch_articles(home, away):
     """Search GNews for recent articles about this match."""
-    query = f"{home} {away} World Cup 2026"
+    query = f"{_clean(home)} {_clean(away)} World Cup 2026"
     url = "https://gnews.io/api/v4/search"
     try:
         r = requests.get(url, params={
