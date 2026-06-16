@@ -1,12 +1,13 @@
 """
-Fetch Reddit sentiment for upcoming WC matches using PRAW + Claude Haiku.
+Fetch Reddit sentiment for upcoming WC matches using Reddit public JSON API + Claude Haiku.
 
 Searches r/worldcup and r/soccer for posts about each match in the next 3 days.
+No Reddit API credentials needed — uses the public read-only JSON endpoints.
 Analyzes with Haiku to get crowd-weighted win probabilities + key themes.
 Cached per match_id for 12h — re-fetched on each daily cron run before kickoff.
 
-Requires: REDDIT_CLIENT_ID, REDDIT_CLIENT_SECRET, ANTHROPIC_API_KEY in .env
-Install:   pip install praw anthropic
+Requires: ANTHROPIC_API_KEY in .env
+Install:   pip install anthropic requests
 """
 import json
 import os
@@ -15,21 +16,20 @@ import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
 
 DB_PATH = Path(__file__).parent.parent / "database" / "sports_agent.db"
 
-REDDIT_CLIENT_ID     = os.getenv("REDDIT_CLIENT_ID")
-REDDIT_CLIENT_SECRET = os.getenv("REDDIT_CLIENT_SECRET")
-REDDIT_USER_AGENT    = os.getenv("REDDIT_USER_AGENT", "sports-agent/1.0")
-ANTHROPIC_API_KEY    = os.getenv("ANTHROPIC_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+USER_AGENT        = "sports-agent/1.0 (WC2026 dashboard)"
 
-SUBREDDITS  = ["worldcup", "soccer"]
-MAX_POSTS   = 5
-MAX_COMMENTS = 50
-CACHE_HOURS  = 12
+SUBREDDITS     = ["worldcup", "soccer"]
+MAX_POSTS      = 5
+MAX_COMMENTS   = 50
+CACHE_HOURS    = 12
 LOOKAHEAD_DAYS = 3
 
 
@@ -79,19 +79,37 @@ def already_fresh(conn, match_id):
         return False
 
 
-def fetch_comments(reddit, home, away):
-    """Search Reddit for posts about this match, return list of comment bodies."""
+def fetch_comments(home, away):
+    """Search Reddit public JSON API — no credentials needed."""
     query = f"{home} {away}"
+    headers = {"User-Agent": USER_AGENT}
     comments = []
 
     for sub in SUBREDDITS:
         try:
-            subreddit = reddit.subreddit(sub)
-            for post in subreddit.search(query, sort="relevance", time_filter="week", limit=MAX_POSTS):
-                post.comments.replace_more(limit=0)
-                for c in post.comments.list()[:15]:
-                    if hasattr(c, "body") and 20 < len(c.body) < 600:
-                        comments.append(c.body)
+            # Search posts
+            url = f"https://www.reddit.com/r/{sub}/search.json"
+            r = requests.get(url, params={"q": query, "sort": "relevance", "t": "week", "limit": MAX_POSTS},
+                             headers=headers, timeout=10)
+            r.raise_for_status()
+            posts = r.json().get("data", {}).get("children", [])
+
+            for post in posts:
+                post_id = post["data"]["id"]
+                # Fetch top comments for this post
+                c_url = f"https://www.reddit.com/r/{sub}/comments/{post_id}.json"
+                cr = requests.get(c_url, params={"limit": 20, "depth": 1},
+                                  headers=headers, timeout=10)
+                if cr.status_code != 200:
+                    continue
+                listing = cr.json()
+                if len(listing) < 2:
+                    continue
+                for child in listing[1]["data"]["children"]:
+                    body = child["data"].get("body", "")
+                    if 20 < len(body) < 600:
+                        comments.append(body)
+                time.sleep(1)  # Reddit rate limit: 1 req/sec
                 if len(comments) >= MAX_COMMENTS:
                     break
         except Exception as e:
@@ -141,21 +159,11 @@ def analyze_with_haiku(ac, home, away, comments):
 
 
 def main():
-    if not REDDIT_CLIENT_ID or not REDDIT_CLIENT_SECRET:
-        print("REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET not set — skipping sentiment")
-        return
     if not ANTHROPIC_API_KEY:
         print("ANTHROPIC_API_KEY not set — skipping sentiment")
         return
 
-    import praw
     import anthropic
-
-    reddit = praw.Reddit(
-        client_id=REDDIT_CLIENT_ID,
-        client_secret=REDDIT_CLIENT_SECRET,
-        user_agent=REDDIT_USER_AGENT,
-    )
     ac = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
     conn = sqlite3.connect(DB_PATH)
@@ -173,7 +181,7 @@ def main():
             continue
 
         print(f"  {home} vs {away}: fetching Reddit…")
-        comments = fetch_comments(reddit, home, away)
+        comments = fetch_comments(home, away)
         print(f"    {len(comments)} comments")
 
         if not comments:
