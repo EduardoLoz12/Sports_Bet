@@ -41,6 +41,10 @@ PHI = np.log(2) / DECAY_HALFLIFE
 # WC 2026 host countries (get small home advantage boost)
 WC_HOSTS = {"United States", "Canada", "Mexico"}
 
+# Live WC2026 results are the strongest signal available (current squads, current
+# form) — weight them far above historical qualifiers/friendlies of similar recency.
+WC2026_BOOST = 6.0
+
 
 def comp_weight(tournament: str) -> float:
     t = str(tournament)
@@ -103,7 +107,7 @@ def inject_wc2026_results(conn, today) -> list:
         match_date = r[2][:10]
         days_ago = max(0, (today - pd.Timestamp(match_date)).days)
         time_w = np.exp(-PHI * days_ago)
-        total_w = round(1.0 * time_w * 2.0, 4)  # comp_weight=1.0, 2x WC2026 boost
+        total_w = round(1.0 * time_w * WC2026_BOOST, 4)  # comp_weight=1.0, WC2026 boost
         records.append((
             match_date,
             r[0], r[1],
@@ -112,7 +116,7 @@ def inject_wc2026_results(conn, today) -> list:
             0, 1.0, round(time_w, 4), total_w, 1, 1,
         ))
     if records:
-        print(f"  Injecting {len(records)} WC 2026 finished matches (2x weight)")
+        print(f"  Injecting {len(records)} WC 2026 finished matches ({WC2026_BOOST}x weight)")
     return records
 
 

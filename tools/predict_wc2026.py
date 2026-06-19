@@ -36,6 +36,10 @@ THRESHOLD_MED  = 50
 DEFAULT_CORNERS_LINE = 9.5
 DEFAULT_CARDS_LINE   = 3.5
 
+# WC2026 referee directive favors leniency on bookings vs club football —
+# discount historical team card averages (pre-tournament season data) accordingly.
+CARDS_LENIENCY_FACTOR = 0.80
+
 
 def dc_tau(x, y, lam, mu, rho):
     if   x == 0 and y == 0: return 1 - lam * mu * rho
@@ -113,7 +117,7 @@ def predict_cards(home_stats, away_stats):
     if home_cards == 0.0 and away_cards == 0.0:
         return f"bajo {line} (sin datos)", 35
 
-    expected = (home_cards or 2.0) + (away_cards or 2.0)
+    expected = ((home_cards or 2.0) + (away_cards or 2.0)) * CARDS_LENIENCY_FACTOR
     if expected > line + 0.5:
         return f"sobre {line}", confidence(min((expected - line) / 2, 1.0))
     if expected < line - 0.5:
