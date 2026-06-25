@@ -188,12 +188,13 @@ def upcoming():
                 res = "W" if gf > ga else "L" if gf < ga else "D"
                 past_results.append({"opp": opp, "score": f"{gf}-{ga}", "res": res})
 
-            # Remaining group fixtures
+            # Remaining group fixtures. (Literal '%' in a LIKE pattern collides with
+            # psycopg2's %s parameter substitution on Postgres — stick to stage=.)
             rem = conn.execute("""
                 SELECT home_team, away_team FROM matches
                 WHERE status IN ('SCHEDULED','TIMED')
                   AND (home_team=? OR away_team=?)
-                  AND (stage='GROUP_STAGE' OR group_stage LIKE 'Group%' OR group_stage LIKE 'GROUP%')
+                  AND stage='GROUP_STAGE'
                 ORDER BY kickoff_utc
             """, (team_name, team_name)).fetchall()
             remaining = []
