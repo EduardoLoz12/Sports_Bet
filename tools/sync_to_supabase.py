@@ -96,18 +96,17 @@ def main():
     for table, columns in TABLE_COLUMNS.items():
         sync_table(local, cur, table, columns)
 
-    # Model metadata (dc_params.json / eval_report.json) for /api/model_info
-    for key, fname in [("dc_params", "dc_params.json"), ("eval_report", "eval_report.json")]:
-        f = MODELS_DIR / fname
-        if f.exists():
-            cur.execute(
-                """
-                INSERT INTO model_meta (key, json) VALUES (%s, %s)
-                ON CONFLICT (key) DO UPDATE SET json = EXCLUDED.json
-                """,
-                (key, f.read_text(encoding="utf-8")),
-            )
-            print(f"  model_meta.{key}: synced")
+    # Model metadata for /api/model_info — v2.0.0 uses the 'wc_model' row written to
+    # the local model_meta table by predict_wc2026.py.
+    for row in local.execute("SELECT key, json FROM model_meta WHERE key='wc_model'").fetchall():
+        cur.execute(
+            """
+            INSERT INTO model_meta (key, json) VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET json = EXCLUDED.json
+            """,
+            (row["key"], row["json"]),
+        )
+        print(f"  model_meta.{row['key']}: synced")
 
     remote.commit()
     cur.close()

@@ -207,12 +207,14 @@ def upcoming():
 
             points = st["points"] if st else None
             played = st["played"] if st else len(past_results)
+            group_left = max(0, 3 - played) if played is not None else None
             qualified = None
             pts_to_qualify = None
             if points is not None:
                 if points >= 6:
                     qualified = "Clasificado (prob.)"
-                else:
+                elif group_left and group_left > 0:
+                    # Only meaningful while the team still has group games to play.
                     pts_to_qualify = max(0, QUALIFY_TARGET - points)
 
             return {
@@ -220,7 +222,7 @@ def upcoming():
                 "position":       st["position"] if st else None,
                 "points":         points,
                 "played":         played,
-                "remaining":      max(0, 3 - played) if played is not None else None,
+                "remaining":      group_left,
                 "gd":             st["gd"] if st else None,
                 "gf":             st["gf"] if st else None,
                 "pts_to_qualify": pts_to_qualify,
@@ -229,7 +231,8 @@ def upcoming():
                                    if scorer else None),
                 "team_assists":   assist_row["a"] if assist_row else 0,
                 "past_results":   past_results,
-                "remaining_fixtures": remaining,
+                # Only group games still to play; once the group is done, no "falta".
+                "remaining_fixtures": remaining if (group_left and group_left > 0) else [],
             }
 
         home_wc = wc_stats(m["home_team_id"], m["home_team"])
