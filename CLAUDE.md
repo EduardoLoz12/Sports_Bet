@@ -39,10 +39,13 @@ Corners & yellow-card markets were **removed** in v2.0.0 (user doesn't bet them)
 
 ## Data Sources (free only)
 - **api-sports.io** (primary) — Free plan, **100 req/day**, 10 req/min. National team stats 2023-2024. Key: `API_FOOTBALL_KEY`. Auth: `x-apisports-key`. Base: `v3.football.api-sports.io`. Free plan only covers up to season 2024. Uses `/teams/statistics` endpoint (1 call/team). Team ID map cached permanently in `.tmp/team_id_map/` so search costs 0 after first run.
-- **football-data.org** (fixtures) — Free tier. WC 2026 fixtures, lineups, scorers. Key: `FOOTBALL_DATA_KEY`. Auth: `X-Auth-Token`. Base: `api.football-data.org/v4`.
+- **football-data.org** (fixtures) — Free tier. WC 2026 fixtures, scores, standings (`fetch_standings.py`), scorers. Key: `FOOTBALL_DATA_KEY`. Auth: `X-Auth-Token`. Base: `api.football-data.org/v4`.
+- **GNews.io** (`fetch_reddit_sentiment.py` — filename kept, content is GNews) — match sentiment via news headlines + Claude Haiku. Free tier is **10 req/day in practice** (not the advertised 100) — `LOOKAHEAD_DAYS=1` to stay under budget. Reddit's own API was tried first but 403s from Hetzner's VPS IP and now requires manual approval for new apps — don't plan around instant Reddit access.
 - **StatsBomb open data** — GitHub repo `statsbomb/open-data`. Historical WC match events (corners, cards, goals per minute). Cloned to `data/statsbomb/`.
 
 **Rate limit rule:** Cache all API responses locally in `.tmp/YYYY-MM-DD/`. Never re-fetch same endpoint+params twice per day. Sleep 7s between api-sports.io calls.
+
+**Data-integrity gotcha:** `fetch_fixtures.py`'s ±2-day fetch window can mark a match FINISHED before football-data.org posts the final score, leaving `home_score`/`away_score` NULL forever once it ages out of the window — this silently breaks both the dashboard's "Camino" panel and the model's `build_ratings()` (filters on score IS NOT NULL). `backfill_missing_scores()` runs on every `fetch_fixtures.py` call to catch and fix these.
 
 ---
 
@@ -66,6 +69,28 @@ Confidence thresholds (display tier only — no staking): HIGH ≥ 65, MED 50–
 
 Runs daily via cron in `scripts/run_daily.sh` (fetch_fixtures → fetch_standings → fetch_player_stats
 → fetch_team_stats → fetch_intl_stats → predict_wc2026 → fetch_reddit_sentiment → sync_to_supabase).
+
+---
+
+## Dashboard Tournament Panels (v2.0.0, `dashboard/app.py` `/api/upcoming`)
+Per team, alongside the model prediction + sentiment block:
+- **Forma Mundial** — W/D/L badges built ONLY from `matches` (status=FINISHED, WC2026), last 5.
+  NOT from `team_extended_stats.form10` (martj42 historical) or `team_stats.form_last10` (api-sports
+  club data) — those are explicitly excluded per the "TODO DATA DEL MUNDIAL" requirement. Badge
+  count is honestly ≤3-5 (group stage caps at 3 games), never padded.
+- **Grupo** — position/points/GD from `standings` (fetch_standings.py) + `pts_to_qualify` estimate
+  (`QUALIFY_TARGET=4` heuristic, only shown while group games remain; "Clasificado (prob.)" at 6+ pts).
+- **Goleo** — top scorer + team assists from `player_stats` (WC scorers only).
+- **Camino** — past WC results (opponent + score + W/D/L) and remaining group fixtures from `matches`.
+
+All four panels are WC2026-only by design — `team_extended_stats` (martj42) is still used for
+pre-tournament reference context (fifa_rank, win_pct, confederation) shown in the separate
+team-stats-table columns, but never for "Forma".
+
+**Postgres caveat:** any new SQL touching `dashboard/app.py` must avoid literal `%` in `LIKE`
+patterns (breaks psycopg2's param substitution on the Vercel/Supabase path, silently fine on
+SQLite) — test against the real `SUPABASE_DB_URL` locally before deploying. See feedback memory
+for the exact repro (`VERCEL=1` + `app.test_request_context(...)`).
 
 ---
 
