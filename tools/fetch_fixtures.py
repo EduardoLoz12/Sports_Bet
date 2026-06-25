@@ -125,6 +125,31 @@ def upsert_match(conn: sqlite3.Connection, m: dict):
     ))
 
 
+def backfill_missing_scores(conn: sqlite3.Connection) -> int:
+    """Some matches get marked FINISHED by the +/-2 day window before football-data.org
+    posts the final score, then age out of the window and stay NULL forever. Catch them
+    with one full-schedule call (cached per day) and re-upsert just those match_ids."""
+    missing = conn.execute("""
+        SELECT match_id FROM matches
+        WHERE status='FINISHED' AND (home_score IS NULL OR away_score IS NULL)
+    """).fetchall()
+    if not missing:
+        return 0
+    missing_ids = {r[0] for r in missing}
+    print(f"  Backfilling scores for {len(missing_ids)} FINISHED match(es) with NULL score...")
+    try:
+        full = fetch_all_wc_matches()
+    except Exception as e:
+        print(f"  WARNING: backfill fetch failed ({e})")
+        return 0
+    n = 0
+    for m in full:
+        if str(m["id"]) in missing_ids:
+            upsert_match(conn, m)
+            n += 1
+    return n
+
+
 def main(all_matches: bool = False):
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
@@ -142,6 +167,10 @@ def main(all_matches: bool = False):
         home = m["homeTeam"].get("name", "?")
         away = m["awayTeam"].get("name", "?")
         print(f"  {home} vs {away} | {m.get('utcDate','')[:10]} | {m.get('status')}")
+
+    n_backfilled = backfill_missing_scores(conn)
+    if n_backfilled:
+        print(f"  Backfilled {n_backfilled} score(s)")
 
     conn.commit()
     conn.close()

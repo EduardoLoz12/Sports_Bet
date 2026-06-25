@@ -82,75 +82,6 @@ def upcoming():
 
         # include even matches without predictions (shown as "pending data")
 
-        LEAGUE_LABEL = {
-            5: "UEFA EURO", 6: "UEFA NL", 9: "Copa América",
-            22: "CONCACAF GC", 536: "CONCACAF NL", 13: "AFCON",
-            17: "AFC Cup", 10: "Amistosos", 0: "",
-        }
-        LEAGUE_STARS = {
-            5: "★★★★★", 6: "★★★★★", 9: "★★★★",
-            22: "★★★", 536: "★★★", 13: "★★★",
-            17: "★★", 10: "★★", 0: "",
-        }
-
-        # Team form — joins api-sports.io stats + martj42 extended stats
-        def form(team_id, team_name):
-            api_row = conn.execute("""
-                SELECT form_last10, goals_scored_avg, goals_conceded_avg, league_id
-                FROM team_stats WHERE team_id=? ORDER BY stat_date DESC LIMIT 1
-            """, (team_id,)).fetchone()
-
-            ext_row = conn.execute("""
-                SELECT fifa_rank, elo_approx, wc_titles, confederation,
-                       win_pct, draw_pct, loss_pct,
-                       comp_gf_avg, comp_ga_avg, comp_win_pct,
-                       clean_sheet_pct, big_win_pct, big_loss_pct,
-                       form5, form10, pts_pct_5, pts_pct_10
-                FROM team_extended_stats WHERE team=? LIMIT 1
-            """, (team_name,)).fetchone()
-
-            if not api_row and not ext_row:
-                return None
-
-            # Form from martj42 (more teams, more reliable)
-            form_list = []
-            if ext_row and ext_row["form10"]:
-                form_list = list(ext_row["form10"])
-            elif api_row:
-                try:
-                    form_list = json.loads(api_row["form_last10"] or "[]")
-                except Exception:
-                    form_list = []
-
-            lid = (api_row["league_id"] if api_row else 0) or 0
-
-            return {
-                "form":              form_list,
-                "gf":                round((api_row["goals_scored_avg"]  if api_row else 0) or 0, 2),
-                "ga":                round((api_row["goals_conceded_avg"] if api_row else 0) or 0, 2),
-                "league":            LEAGUE_LABEL.get(lid, ""),
-                "league_stars":      LEAGUE_STARS.get(lid, ""),
-                # Extended stats from martj42
-                "fifa_rank":         ext_row["fifa_rank"]       if ext_row else None,
-                "elo":               ext_row["elo_approx"]      if ext_row else None,
-                "wc_titles":         ext_row["wc_titles"]       if ext_row else 0,
-                "confederation":     ext_row["confederation"]   if ext_row else "",
-                "win_pct":           ext_row["win_pct"]         if ext_row else None,
-                "draw_pct":          ext_row["draw_pct"]        if ext_row else None,
-                "loss_pct":          ext_row["loss_pct"]        if ext_row else None,
-                "comp_gf_avg":       ext_row["comp_gf_avg"]     if ext_row else None,
-                "comp_ga_avg":       ext_row["comp_ga_avg"]     if ext_row else None,
-                "comp_win_pct":      ext_row["comp_win_pct"]    if ext_row else None,
-                "clean_sheet_pct":   ext_row["clean_sheet_pct"] if ext_row else None,
-                "big_win_pct":       ext_row["big_win_pct"]     if ext_row else None,
-                "big_loss_pct":      ext_row["big_loss_pct"]    if ext_row else None,
-                "pts_pct_5":         ext_row["pts_pct_5"]       if ext_row else None,
-                "pts_pct_10":        ext_row["pts_pct_10"]      if ext_row else None,
-            }
-
-        home_stats = form(m["home_team_id"], m["home_team"])
-        away_stats = form(m["away_team_id"], m["away_team"])
-
         # ── WC2026 tournament panels (group table, scorers, fixture path) ──────
         QUALIFY_TARGET = 4  # rough points threshold for the qualification zone
 
@@ -175,7 +106,7 @@ def upcoming():
             past = conn.execute("""
                 SELECT home_team, away_team, home_score, away_score
                 FROM matches
-                WHERE status='FINISHED' AND home_score IS NOT NULL
+                WHERE status='FINISHED' AND home_score IS NOT NULL AND away_score IS NOT NULL
                   AND (home_team=? OR away_team=?)
                 ORDER BY kickoff_utc
             """, (team_name, team_name)).fetchall()
@@ -238,6 +169,46 @@ def upcoming():
 
         home_wc = wc_stats(m["home_team_id"], m["home_team"])
         away_wc = wc_stats(m["away_team_id"], m["away_team"])
+
+        # Team card stats. "Forma 5" is built ONLY from WC2026 results (wc["past_results"],
+        # last 5) — never from historical/club data. The rest (fifa_rank, win_pct, etc.)
+        # is pre-tournament reference context from martj42, shown separately from form.
+        def form(team_name, wc):
+            ext_row = conn.execute("""
+                SELECT fifa_rank, elo_approx, wc_titles, confederation,
+                       win_pct, draw_pct, loss_pct,
+                       comp_gf_avg, comp_ga_avg, comp_win_pct,
+                       clean_sheet_pct, big_win_pct, big_loss_pct,
+                       pts_pct_5, pts_pct_10
+                FROM team_extended_stats WHERE team=? LIMIT 1
+            """, (team_name,)).fetchone()
+
+            form_list = [r["res"] for r in (wc["past_results"] if wc else [])][-5:]
+
+            if not ext_row and not form_list:
+                return None
+
+            return {
+                "form":            form_list,
+                "fifa_rank":       ext_row["fifa_rank"]       if ext_row else None,
+                "elo":             ext_row["elo_approx"]      if ext_row else None,
+                "wc_titles":       ext_row["wc_titles"]       if ext_row else 0,
+                "confederation":   ext_row["confederation"]   if ext_row else "",
+                "win_pct":         ext_row["win_pct"]         if ext_row else None,
+                "draw_pct":        ext_row["draw_pct"]        if ext_row else None,
+                "loss_pct":        ext_row["loss_pct"]        if ext_row else None,
+                "comp_gf_avg":     ext_row["comp_gf_avg"]     if ext_row else None,
+                "comp_ga_avg":     ext_row["comp_ga_avg"]     if ext_row else None,
+                "comp_win_pct":    ext_row["comp_win_pct"]    if ext_row else None,
+                "clean_sheet_pct": ext_row["clean_sheet_pct"] if ext_row else None,
+                "big_win_pct":     ext_row["big_win_pct"]     if ext_row else None,
+                "big_loss_pct":    ext_row["big_loss_pct"]    if ext_row else None,
+                "pts_pct_5":       ext_row["pts_pct_5"]       if ext_row else None,
+                "pts_pct_10":      ext_row["pts_pct_10"]      if ext_row else None,
+            }
+
+        home_stats = form(m["home_team"], home_wc)
+        away_stats = form(m["away_team"], away_wc)
 
         # Build predictions dict (corners/cards already dropped by predict_wc2026.py)
         preds_out = []
