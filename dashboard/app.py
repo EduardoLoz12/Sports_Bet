@@ -27,135 +27,25 @@ def index():
     return render_template("index.html")
 
 
-# ── P&L API ───────────────────────────────────────────────────────────────────
-
-@app.route("/api/summary")
-def summary():
-    bankroll_start = float(os.getenv("BANKROLL_START", 325))
-    conn = get_db()
-    t = conn.execute("""
-        SELECT COUNT(*) as total_bets,
-               SUM(CASE WHEN result='win'     THEN 1 ELSE 0 END) as wins,
-               SUM(CASE WHEN result='loss'    THEN 1 ELSE 0 END) as losses,
-               SUM(CASE WHEN result='pending' THEN 1 ELSE 0 END) as pending,
-               SUM(profit_soles)  as total_profit,
-               SUM(stake_soles)   as total_staked
-        FROM bets WHERE result != 'pending'
-    """).fetchone()
-    conn.close()
-
-    settled      = (t["wins"] or 0) + (t["losses"] or 0)
-    win_rate     = round(t["wins"] / settled * 100, 1) if settled > 0 else 0
-    total_profit = t["total_profit"] or 0
-    total_staked = t["total_staked"] or 0
-    roi          = round(total_profit / total_staked * 100, 1) if total_staked > 0 else 0
-
-    return jsonify({
-        "bankroll_start": bankroll_start,
-        "bankroll_now":   round(bankroll_start + total_profit, 2),
-        "total_profit":   round(total_profit, 2),
-        "roi_pct":        roi,
-        "win_rate":       win_rate,
-        "total_bets":     t["total_bets"] or 0,
-        "wins":           t["wins"] or 0,
-        "losses":         t["losses"] or 0,
-        "pending":        t["pending"] or 0,
-    })
-
-
-@app.route("/api/by_market")
-def by_market():
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT market,
-               COUNT(*) as bets,
-               SUM(CASE WHEN result='win' THEN 1 ELSE 0 END) as wins,
-               SUM(profit_soles) as profit,
-               SUM(stake_soles)  as staked
-        FROM bets WHERE result != 'pending'
-        GROUP BY market ORDER BY profit DESC
-    """).fetchall()
-    conn.close()
-    result = []
-    for r in rows:
-        staked = r["staked"] or 0
-        roi    = round(r["profit"] / staked * 100, 1) if staked > 0 else 0
-        result.append({
-            "market":   r["market"],
-            "bets":     r["bets"],
-            "wins":     r["wins"] or 0,
-            "win_rate": round((r["wins"] or 0) / r["bets"] * 100, 1),
-            "profit":   round(r["profit"] or 0, 2),
-            "roi":      roi,
-        })
-    return jsonify(result)
-
-
-@app.route("/api/bankroll_history")
-def bankroll_history():
-    bankroll_start = float(os.getenv("BANKROLL_START", 325))
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT settled_at, profit_soles FROM bets
-        WHERE result != 'pending' AND settled_at IS NOT NULL
-        ORDER BY settled_at
-    """).fetchall()
-    conn.close()
-
-    history = [{"date": "Start", "bankroll": bankroll_start}]
-    running = bankroll_start
-    for r in rows:
-        running = round(running + (r["profit_soles"] or 0), 2)
-        history.append({"date": r["settled_at"][:10], "bankroll": running})
-    return jsonify(history)
-
-
-@app.route("/api/recent_bets")
-def recent_bets():
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT b.id, m.home_team, m.away_team, b.market, b.pick, b.odds,
-               b.stake_soles, b.result, b.profit_soles, b.placed_at
-        FROM bets b
-        LEFT JOIN matches m ON b.match_id = m.match_id
-        ORDER BY b.placed_at DESC LIMIT 30
-    """).fetchall()
-    conn.close()
-    return jsonify([dict(r) for r in rows])
-
-
 # ── Model info API ────────────────────────────────────────────────────────────
 
 @app.route("/api/model_info")
 def model_info():
+    """WC2026 Poisson + shrinkage model metadata (written by predict_wc2026.py)."""
     conn = get_db()
-    dc_row   = conn.execute("SELECT json FROM model_meta WHERE key='dc_params'").fetchone()
-    eval_row = conn.execute("SELECT json FROM model_meta WHERE key='eval_report'").fetchone()
+    row = conn.execute("SELECT json FROM model_meta WHERE key='wc_model'").fetchone()
     conn.close()
-
-    if dc_row:
-        dc = json.loads(dc_row["json"])
-        eval_report = json.loads(eval_row["json"]) if eval_row else {}
-    else:
-        # Local dev fallback: read straight from models/ before first sync
-        models_dir = Path(__file__).parent.parent / "models"
-        dc_file   = models_dir / "dc_params.json"
-        eval_file = models_dir / "eval_report.json"
-        if not dc_file.exists():
-            return jsonify({"available": False})
-        dc   = json.loads(dc_file.read_text(encoding="utf-8"))
-        eval_report = json.loads(eval_file.read_text(encoding="utf-8")) if eval_file.exists() else {}
-
+    if not row:
+        return jsonify({"available": False})
+    meta = json.loads(row["json"])
     return jsonify({
-        "available":   True,
-        "n_teams":     len(dc.get("teams", [])),
-        "n_train":     dc.get("n_train"),
-        "gamma":       round(dc.get("gamma", 0), 3),
-        "rho":         round(dc.get("rho", 0), 3),
-        "rps":         round(eval_report.get("dc_rps", 0), 4),
-        "naive_rps":   round(eval_report.get("naive_rps", 0), 4),
-        "skill_pct":   round(eval_report.get("skill_pct", 0), 1),
-        "holdout_n":   eval_report.get("holdout_n"),
+        "available":    True,
+        "model":        meta.get("model", "WC2026 Poisson + shrinkage"),
+        "n_wc_matches": meta.get("n_wc_matches", 0),
+        "mu_league":    meta.get("mu_league"),
+        "k":            meta.get("k"),
+        "teams_rated":  meta.get("teams_rated", 0),
+        "updated":      meta.get("updated"),
     })
 
 
@@ -163,12 +53,7 @@ def model_info():
 
 @app.route("/api/upcoming")
 def upcoming():
-    """All upcoming matches with predictions + team form."""
-    stake = {
-        "HIGH": float(os.getenv("STAKE_HIGH", 50)),
-        "MED":  float(os.getenv("STAKE_MED",  25)),
-        "LOW":  float(os.getenv("STAKE_LOW",  10)),
-    }
+    """All upcoming matches with WC2026 predictions + tournament stats."""
     conn = get_db()
 
     cutoff = (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat() + "T23:59:59"
@@ -211,8 +96,7 @@ def upcoming():
         # Team form — joins api-sports.io stats + martj42 extended stats
         def form(team_id, team_name):
             api_row = conn.execute("""
-                SELECT form_last10, goals_scored_avg, goals_conceded_avg,
-                       avg_cards, avg_corners_for, avg_corners_against, league_id
+                SELECT form_last10, goals_scored_avg, goals_conceded_avg, league_id
                 FROM team_stats WHERE team_id=? ORDER BY stat_date DESC LIMIT 1
             """, (team_id,)).fetchone()
 
@@ -244,9 +128,6 @@ def upcoming():
                 "form":              form_list,
                 "gf":                round((api_row["goals_scored_avg"]  if api_row else 0) or 0, 2),
                 "ga":                round((api_row["goals_conceded_avg"] if api_row else 0) or 0, 2),
-                "cards":             round((api_row["avg_cards"]          if api_row else 0) or 0, 1),
-                "corners_for":       round((api_row["avg_corners_for"]    if api_row else 0) or 0, 1),
-                "corners_against":   round((api_row["avg_corners_against"] if api_row else 0) or 0, 1),
                 "league":            LEAGUE_LABEL.get(lid, ""),
                 "league_stars":      LEAGUE_STARS.get(lid, ""),
                 # Extended stats from martj42
@@ -270,9 +151,92 @@ def upcoming():
         home_stats = form(m["home_team_id"], m["home_team"])
         away_stats = form(m["away_team_id"], m["away_team"])
 
-        # Build predictions dict
+        # ── WC2026 tournament panels (group table, scorers, fixture path) ──────
+        QUALIFY_TARGET = 4  # rough points threshold for the qualification zone
+
+        def wc_stats(team_id, team_name):
+            st = conn.execute("""
+                SELECT group_label, position, played, won, draw, lost, gf, ga, gd, points
+                FROM standings WHERE team_id=? LIMIT 1
+            """, (team_id,)).fetchone()
+
+            # Top scorer + team assists from WC scorers (player_stats)
+            scorer = conn.execute("""
+                SELECT player_name, goals_total FROM player_stats
+                WHERE team_id=? AND goals_total > 0
+                ORDER BY goals_total DESC LIMIT 1
+            """, (team_id,)).fetchone()
+            assist_row = conn.execute(
+                "SELECT COALESCE(SUM(assists),0) AS a FROM player_stats WHERE team_id=?",
+                (team_id,)
+            ).fetchone()
+
+            # Past results (finished WC matches for this team)
+            past = conn.execute("""
+                SELECT home_team, away_team, home_score, away_score
+                FROM matches
+                WHERE status='FINISHED' AND home_score IS NOT NULL
+                  AND (home_team=? OR away_team=?)
+                ORDER BY kickoff_utc
+            """, (team_name, team_name)).fetchall()
+            past_results = []
+            for p in past:
+                if p["home_team"] == team_name:
+                    opp, gf, ga = p["away_team"], p["home_score"], p["away_score"]
+                else:
+                    opp, gf, ga = p["home_team"], p["away_score"], p["home_score"]
+                res = "W" if gf > ga else "L" if gf < ga else "D"
+                past_results.append({"opp": opp, "score": f"{gf}-{ga}", "res": res})
+
+            # Remaining group fixtures
+            rem = conn.execute("""
+                SELECT home_team, away_team FROM matches
+                WHERE status IN ('SCHEDULED','TIMED')
+                  AND (home_team=? OR away_team=?)
+                  AND (stage='GROUP_STAGE' OR group_stage LIKE 'Group%' OR group_stage LIKE 'GROUP%')
+                ORDER BY kickoff_utc
+            """, (team_name, team_name)).fetchall()
+            remaining = []
+            for r in rem:
+                opp = r["away_team"] if r["home_team"] == team_name else r["home_team"]
+                if opp:
+                    remaining.append(opp)
+
+            if not st and not scorer and not past_results and not remaining:
+                return None
+
+            points = st["points"] if st else None
+            played = st["played"] if st else len(past_results)
+            qualified = None
+            pts_to_qualify = None
+            if points is not None:
+                if points >= 6:
+                    qualified = "Clasificado (prob.)"
+                else:
+                    pts_to_qualify = max(0, QUALIFY_TARGET - points)
+
+            return {
+                "group":          st["group_label"] if st else None,
+                "position":       st["position"] if st else None,
+                "points":         points,
+                "played":         played,
+                "remaining":      max(0, 3 - played) if played is not None else None,
+                "gd":             st["gd"] if st else None,
+                "gf":             st["gf"] if st else None,
+                "pts_to_qualify": pts_to_qualify,
+                "qualified":      qualified,
+                "top_scorer":     ({"name": scorer["player_name"], "goals": scorer["goals_total"]}
+                                   if scorer else None),
+                "team_assists":   assist_row["a"] if assist_row else 0,
+                "past_results":   past_results,
+                "remaining_fixtures": remaining,
+            }
+
+        home_wc = wc_stats(m["home_team_id"], m["home_team"])
+        away_wc = wc_stats(m["away_team_id"], m["away_team"])
+
+        # Build predictions dict (corners/cards already dropped by predict_wc2026.py)
         preds_out = []
-        bets_out  = []
         for p in preds:
             preds_out.append({
                 "market":     p["market"],
@@ -281,13 +245,6 @@ def upcoming():
                 "tier":       p["stake_tier"],
                 "odds":       p["odds"],
             })
-            if p["stake_tier"] in ("HIGH", "MED"):
-                bets_out.append({
-                    "pick":  p["pick"],
-                    "tier":  p["stake_tier"],
-                    "stake": stake[p["stake_tier"]],
-                    "odds":  p["odds"],
-                })
 
         # Reddit sentiment (optional — populated by fetch_reddit_sentiment.py)
         sentiment = None
@@ -317,8 +274,9 @@ def upcoming():
             "stage":       (m["stage"] or "").replace("_", " ").title(),
             "home_stats":  home_stats,
             "away_stats":  away_stats,
+            "home_wc":     home_wc,
+            "away_wc":     away_wc,
             "predictions": preds_out,
-            "bets":        bets_out,
             "sentiment":   sentiment,
         })
 

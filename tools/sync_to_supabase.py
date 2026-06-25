@@ -30,9 +30,9 @@ TABLE_COLUMNS = {
     "predictions": [
         "match_id", "market", "pick", "confidence", "odds", "stake_tier", "created_at",
     ],
-    "bets": [
-        "match_id", "market", "pick", "odds", "stake_soles", "result",
-        "profit_soles", "placed_at", "settled_at",
+    "standings": [
+        "team", "team_id", "group_label", "position", "played", "won", "draw",
+        "lost", "gf", "ga", "gd", "points", "updated_at",
     ],
     "team_stats": [
         "team_id", "team", "stat_date", "avg_corners_for", "avg_corners_against",

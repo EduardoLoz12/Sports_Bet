@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS model_meta (
     json TEXT
 );
 
--- Reddit crowd sentiment per match (populated by tools/fetch_reddit_sentiment.py).
+-- Reddit/GNews crowd sentiment per match (populated by tools/fetch_reddit_sentiment.py).
 CREATE TABLE IF NOT EXISTS match_sentiment (
     id SERIAL PRIMARY KEY,
     match_id TEXT UNIQUE,
@@ -122,4 +122,23 @@ CREATE TABLE IF NOT EXISTS match_sentiment (
     top_themes TEXT,
     post_count INTEGER,
     fetched_at TEXT
+);
+
+-- WC2026 group standings (populated by tools/fetch_standings.py). v2.0.0.
+CREATE TABLE IF NOT EXISTS standings (
+    id SERIAL PRIMARY KEY,
+    team TEXT,
+    team_id INTEGER,
+    group_label TEXT,
+    position INTEGER,
+    played INTEGER DEFAULT 0,
+    won INTEGER DEFAULT 0,
+    draw INTEGER DEFAULT 0,
+    lost INTEGER DEFAULT 0,
+    gf INTEGER DEFAULT 0,
+    ga INTEGER DEFAULT 0,
+    gd INTEGER DEFAULT 0,
+    points INTEGER DEFAULT 0,
+    updated_at TEXT,
+    UNIQUE(team_id, group_label)
 );

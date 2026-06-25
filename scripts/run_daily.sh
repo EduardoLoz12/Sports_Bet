@@ -19,14 +19,16 @@ run_step() {
     fi
 }
 
+# v2.0.0: predictions use ONLY WC2026 results (Poisson + shrinkage, computed inside
+# predict_wc2026.py). collect_training_data.py + train_model.py (Dixon-Coles on martj42
+# history) are deprecated and no longer run.
 run_step tools/fetch_fixtures.py
-run_step tools/fetch_team_stats.py
+run_step tools/fetch_standings.py
 run_step tools/fetch_player_stats.py
+run_step tools/fetch_team_stats.py
 run_step tools/fetch_intl_stats.py
-run_step tools/collect_training_data.py
-run_step tools/train_model.py
 run_step tools/predict_wc2026.py
 run_step tools/fetch_reddit_sentiment.py
 run_step tools/sync_to_supabase.py
 
-echo "[$(date)] Data fetch + ML pipeline complete"
+echo "[$(date)] Data fetch + prediction pipeline complete"

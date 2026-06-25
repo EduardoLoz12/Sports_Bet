@@ -1,6 +1,15 @@
-# Sports Bet Agent — World Cup 2026
+# Sports Bet Agent — World Cup 2026 (v2.0.0)
 
-Pre-match betting analysis bot for the 2026 World Cup. Every day it pulls fresh team/player data, retrains a Dixon-Coles model, scores upcoming matches, and pushes a Telegram report (D-1 before each match) with win probabilities, goalscorer picks, corners/cards recommendations and tiered stake suggestions. Results are logged to SQLite and tracked on a Flask dashboard.
+**Decision-support dashboard for real bets.** The bot can't connect to the betting house, so it tracks
+NO money — it surfaces, per WC2026 match, everything to look at before betting: model win
+probabilities + probable scoreline (computed **only from WC2026 results**), Reddit/GNews crowd
+sentiment, and per-team tournament stats (group position, est. points-to-qualify, top scorer, team
+goals/assists, past opponents + results, remaining fixtures). Daily cron refreshes data on Hetzner;
+a read-only Supabase mirror powers the Vercel dashboard.
+
+> **v2.0.0 changes:** removed money/profit/ROI/bankroll tracking (`bets` table + `log_bet.py`),
+> dropped corners & cards markets, replaced the historical Dixon-Coles model with a WC2026-only
+> Poisson+shrinkage model, and added the tournament stat panels.
 
 ## Architecture: WAT (Workflows → Agents → Tools)
 
@@ -9,35 +18,33 @@ AI reasons and orchestrates; Python scripts execute deterministically.
 ```
 workflows/   Markdown SOPs — read these first
 tools/       Python scripts, one responsibility each
-dashboard/   Flask app — bet tracker & P&L
+dashboard/   Flask app — pre-bet analysis (no money tracking)
 database/    SQLite (sports_agent.db) — single source of truth
 data/        StatsBomb open data + static team metadata
-models/      Trained Dixon-Coles params & eval reports (generated)
 scripts/     Cron/deploy entrypoints
 ```
 
-## Prediction model
+## Prediction model (WC2026-only Poisson + shrinkage)
 
-Dixon-Coles Poisson model (`tools/train_model.py` / `tools/predict_wc2026.py`), replacing an earlier heuristic scorer.
+Computed inside `tools/predict_wc2026.py` directly from finished WC2026 matches — no historical
+data, no MLE training step.
 
-- Each team gets attack (`alpha`) and defense (`beta`) ratings fit by MLE (scipy L-BFGS-B)
-- `goals_home ~ Poisson(exp(alpha_home - beta_away + gamma))`
-- `gamma` = home advantage, `rho` = Dixon-Coles low-score correction
-- Trained on 1,354 international matches / 191 teams, time-decay weighted (half-life 365d)
-- Hold-out RPS = 0.110 vs naive 0.149 → **+25.9% skill**
-- Outputs 5 markets per match: `winner`, `probabilities`, `scoreline`, `corners`, `cards` (corners/cards only when real team stats are available — never invented)
+- Per team: attack/defense rates from WC goals for/against, shrunk toward the tournament mean
+  (`k=3` pseudo-matches) so teams with 1-2 games don't swing wildly
+- `lam = mu * A_home * D_away`, `mu_a = mu * A_away * D_home`; hosts (USA/CAN/MEX) get a 1.10 bump
+- Independent bivariate Poisson grid → 1X2 probabilities + most-likely scoreline
+- Outputs 3 markets per match: `winner`, `probabilities`, `scoreline`
+- `/api/model_info` exposes `n_wc_matches`, `mu_league`, `k`, `teams_rated`
 
-## Betting markets
+## Markets
 
 | Market | Signals |
 |---|---|
-| Match winner (1X2) | Head-to-head, form last 10, goal diff, FIFA ranking |
-| Anytime scorer | Goals/90, minutes played, penalty-taker status |
-| 1H / 2H scorer | Team half-split goal timing |
-| Corners | Avg corners for/against last 10, playing style |
-| Yellow cards | Team & referee card averages, derby intensity |
+| Match winner (1X2) | WC2026 attack/defense ratings (Poisson + shrinkage) |
+| Probabilities (1X2) | Same Poisson grid |
+| Probable scoreline | Poisson-grid argmax |
 
-Stakes are tiered by model confidence (HIGH ≥ 65, MED 50-64, LOW < 50), with S/. amounts configured in `.env`.
+Confidence tiers (display only, no staking): HIGH ≥ 65, MED 50-64, LOW < 50.
 
 ## Setup
 

@@ -1,11 +1,11 @@
-# CLAUDE.md — World Cup Betting Bot
+# CLAUDE.md — World Cup Betting Bot (v2.0.0)
 
 ## WAT Architecture
 Workflows → Agents → Tools. AI reasons and orchestrates; Python scripts execute deterministically.
 
 - `workflows/` — Markdown SOPs. Read before doing anything.
 - `tools/` — Python scripts. One responsibility each.
-- `dashboard/` — Flask web app (bet tracker + P&L).
+- `dashboard/` — Flask web app (pre-bet analysis dashboard — NO money tracking).
 - `database/` — SQLite. Single source of truth.
 - `data/statsbomb/` — Historical StatsBomb open data dumps.
 - `.env` — All secrets. Never store credentials elsewhere.
@@ -13,26 +13,27 @@ Workflows → Agents → Tools. AI reasons and orchestrates; Python scripts exec
 
 ---
 
-## Project Goal
-Pre-match report bot for 2026 World Cup. Sends Telegram message D-1 before each match with:
-- Win probabilities (weighted model)
-- Goalscorer picks (anytime, 1H, 2H)
-- Corners recommendation (over/under)
-- Yellow cards recommendation (over/under)
-- Tiered stake suggestions (LOW/MED/HIGH confidence)
+## Project Goal (v2.0.0)
+**Decision-support tool for the user's REAL bets** — the bot can't connect to Betano, so it tracks
+NO money/profit. It surfaces, per WC2026 match, everything needed before betting:
+- Win probabilities + probable scoreline (model, **ONLY from WC2026 results**)
+- Reddit/GNews crowd sentiment
+- Per-team WC2026 stats: group position, est. points-to-qualify, top scorer, team goals/assists,
+  past opponents + results, remaining fixtures
 
-Bet results logged to SQLite → P&L dashboard on Flask.
+**v2.0.0 removed:** money/profit/ROI/bankroll KPIs, `bets` table, `log_bet.py`, corners & cards
+markets, and the Dixon-Coles model trained on historical martj42 data.
 
 ---
 
-## Bet Markets
+## Bet Markets (v2.0.0)
 | Market | Data signals |
 |--------|-------------|
-| Match winner (1X2) | Head-to-head, form last 10, goal diff, FIFA ranking |
-| Anytime scorer | Player goals/90, minutes played, penalty taker status |
-| 1H / 2H scorer | Team 1H vs 2H goal split, player timing patterns |
-| Corners | Team avg corners for/against last 10, style (possession vs counter) |
-| Yellow cards | Team avg cards/game, referee avg cards/game, derby intensity |
+| Match winner (1X2) | WC2026 attack/defense ratings (Poisson + shrinkage) |
+| Probabilities (full 1X2) | Same Poisson grid |
+| Probable scoreline | Poisson-grid argmax |
+
+Corners & yellow-card markets were **removed** in v2.0.0 (user doesn't bet them).
 
 ---
 
@@ -45,25 +46,26 @@ Bet results logged to SQLite → P&L dashboard on Flask.
 
 ---
 
-## Prediction Model
-**Dixon-Coles ML model** (`tools/train_model.py` + `tools/predict_wc2026.py`) — replaced the old heuristic `scoring_model.py` for the 1X2 winner market.
+## Prediction Model (v2.0.0 — WC2026-only Poisson + shrinkage)
+Computed entirely inside `tools/predict_wc2026.py` from finished WC2026 matches in the `matches`
+table. **No historical martj42 data, no Dixon-Coles MLE, no `dc_params.json`.**
 
-- Each team gets attack (`alpha`) / defense (`beta`) params fit by MLE (scipy L-BFGS-B) on `training_matches`
-- `goals_home ~ Poisson(exp(alpha_home - beta_away + gamma))`, `goals_away ~ Poisson(exp(alpha_away - beta_home))`
-- `gamma` = home advantage, `rho` = Dixon-Coles low-score correction (τ factor on 0-0/1-0/0-1/1-1 cells)
-- Training data via `tools/collect_training_data.py` — martj42 international results since 2022, competitive matches only, weighted by time-decay (half-life 365d) × competition quality
-- Trained on 1,354 matches / 191 teams. Hold-out RPS=0.110 vs naive 0.149 → **+25.9% skill**
-- **Vectorize the log-likelihood with numpy** — a per-row pandas `iterrows()` loop makes L-BFGS-B's numerical gradient (≈385 evals/step for 191 teams × 2 params + gamma + rho) take hours; the vectorized version converges in seconds
-- `predict_wc2026.py` writes 5 markets per match: `winner`, `probabilities` (full 1X2 split), `scoreline` (Poisson-grid argmax), `corners`, `cards` — corners/cards only emitted when real `team_stats` exist for at least one team (never invented; shows "sin datos" otherwise)
-- Models saved to `models/dc_params.json`, `models/eval_report.json`, `models/logistic_baseline.pkl`
-- Dashboard `/api/model_info` exposes gamma, rho, RPS, skill% for transparency ("Modelo Predictivo" banner)
+- For each team over its finished WC matches: `played`, `gf`, `ga`.
+- Tournament mean `mu = total_goals / (2 * n_finished_matches)` (fallback `DEFAULT_MU=1.35`).
+- Shrinkage with `SHRINK_K=3` pseudo-matches at the mean (stable with 1-2 games played):
+  `att = (gf + k*mu)/(played + k)`, `def = (ga + k*mu)/(played + k)`; strengths `A=att/mu`, `D=def/mu`.
+- Match h vs a (neutral; hosts USA/CAN/MEX get `HOST_BUMP=1.10`):
+  `lam = mu*A_h*D_a`, `mu_a = mu*A_a*D_h` → independent bivariate Poisson grid → 1X2 + argmax scoreline.
+- Teams with 0 WC matches default to strength 1.0 (league-average).
+- Writes 3 markets per match: `winner`, `probabilities`, `scoreline`. (No corners/cards.)
+- `model_meta` key `wc_model` = `{model, n_wc_matches, mu_league, k, teams_rated, updated}`;
+  `/api/model_info` exposes it for the "Modelo Predictivo" banner.
+- `tools/collect_training_data.py` + `tools/train_model.py` are **deprecated** (left in repo, not run).
 
-Confidence thresholds:
-- HIGH ≥ 65 → larger stake tier
-- MED 50–64 → medium stake tier
-- LOW < 50 → skip or small stake
+Confidence thresholds (display tier only — no staking): HIGH ≥ 65, MED 50–64, LOW < 50.
 
-Retrained daily via cron as part of `scripts/run_daily.sh` (fetch_intl_stats → collect_training_data → train_model → predict_wc2026).
+Runs daily via cron in `scripts/run_daily.sh` (fetch_fixtures → fetch_standings → fetch_player_stats
+→ fetch_team_stats → fetch_intl_stats → predict_wc2026 → fetch_reddit_sentiment → sync_to_supabase).
 
 ---
 
@@ -166,24 +168,21 @@ CREATE TABLE predictions (
                                    -- updating (caused dashboard dup-prediction bug 2026-06-10).
 );
 
-CREATE TABLE bets (
+-- v2.0.0: `bets` table + log_bet.py REMOVED (no money tracking).
+
+CREATE TABLE standings (             -- v2.0.0, populated by fetch_standings.py
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  match_id TEXT,
-  market TEXT,
-  pick TEXT,
-  odds REAL,
-  stake_soles REAL,
-  result TEXT,                    -- "win" | "loss" | "void" | "pending"
-  profit_soles REAL,
-  placed_at DATETIME,
-  settled_at DATETIME
+  team TEXT, team_id INTEGER, group_label TEXT,
+  position INTEGER, played INTEGER, won INTEGER, draw INTEGER, lost INTEGER,
+  gf INTEGER, ga INTEGER, gd INTEGER, points INTEGER, updated_at TEXT,
+  UNIQUE(team_id, group_label)
 );
 
 CREATE TABLE team_stats (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   team TEXT,
   stat_date TEXT,
-  avg_corners_for REAL,
+  avg_corners_for REAL,            -- still fetched but unused by predictions in v2.0.0
   avg_corners_against REAL,
   avg_cards REAL,
   goals_1h REAL,
@@ -195,23 +194,20 @@ CREATE TABLE team_stats (
 
 ---
 
-## Workflow Sequence (daily)
-1. `fetch_fixtures.py` — get next 48h WC matches
-2. `fetch_team_stats.py` — update team stats for those teams
-3. `fetch_player_stats.py` — update player goal/card stats
-4. `fetch_intl_stats.py` — update extended team stats (FIFA rank, ELO, form, confederation) from martj42
-5. `collect_training_data.py` — rebuild `training_matches` table from martj42 results (time-decay + competition weighting)
-6. `train_model.py` — fit Dixon-Coles params (alpha/beta/gamma/rho) via MLE, write `models/dc_params.json` + `eval_report.json`
-7. `predict_wc2026.py` — score upcoming matches with the trained model, write `winner`/`probabilities`/`scoreline`/`corners`/`cards` to `predictions`
-   - Only scores matches with `home_team`/`away_team` NOT NULL. Knockout-stage fixtures (R16/QF/SF/Final, ~62 of 104) come from football-data.org with NULL team names until the group stage resolves the bracket — this is EXPECTED, not a bug. They populate automatically via `fetch_fixtures.py`'s upsert as groups finish, and predictions appear on the next daily cron run (all knockout matches fall within the `+40 days` window).
-   - `corners`/`cards` only written when real `team_stats` exists for at least one team — matches without it get 3 markets (`winner`/`probabilities`/`scoreline`), matches with it get 5. Dashboard shows ALL rows from `predictions` for a match (no confidence filter) — 3 vs 5 cards on the dashboard reflects `team_stats` coverage only, not a display bug.
-8. `generate_report.py` — build Telegram message text
-9. `telegram_send.py` — push to user
+## Workflow Sequence (daily — v2.0.0)
+1. `fetch_fixtures.py` — get next 48h WC matches + live scores/status
+2. `fetch_standings.py` — WC group table (position, points, GD) → `standings`
+3. `fetch_player_stats.py` — WC scorers (goals/assists) → top scorer per team
+4. `fetch_team_stats.py` — team form/goals (api-sports.io)
+5. `fetch_intl_stats.py` — extended team stats (FIFA rank, confederation, form) from martj42
+6. `predict_wc2026.py` — WC2026-only Poisson+shrinkage; writes `winner`/`probabilities`/`scoreline`
+   + `model_meta.wc_model`. Only scores matches with `home_team`/`away_team` NOT NULL. Knockout
+   fixtures stay NULL until the bracket resolves (EXPECTED) and predict automatically once named.
+7. `fetch_reddit_sentiment.py` — GNews + Haiku crowd sentiment → `match_sentiment`
+8. `sync_to_supabase.py` — push read-only snapshot to Supabase (Vercel dashboard)
 
 All steps run via `bash scripts/run_daily.sh` (cron: `0 11 * * *` = 6 AM PE time).
-
-## Bet Logging (manual trigger)
-`log_bet.py` — user inputs match + market + odds + stake → written to `bets` table.
+`generate_report.py` / `telegram_send.py` remain available for the D-1 Telegram push.
 
 ---
 

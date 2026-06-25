@@ -12,13 +12,6 @@ SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL") if os.getenv("VERCEL") else None
 
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS bets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id TEXT, market TEXT, pick TEXT,
-    odds REAL, stake_soles REAL,
-    result TEXT DEFAULT 'pending',
-    profit_soles REAL, placed_at DATETIME, settled_at DATETIME
-);
 CREATE TABLE IF NOT EXISTS predictions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     match_id TEXT, market TEXT, pick TEXT,
@@ -46,6 +39,15 @@ CREATE TABLE IF NOT EXISTS match_sentiment (
     home_team TEXT, away_team TEXT,
     home_win_pct INTEGER, draw_pct INTEGER, away_win_pct INTEGER,
     summary TEXT, top_themes TEXT, post_count INTEGER, fetched_at TEXT
+);
+CREATE TABLE IF NOT EXISTS standings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team TEXT, team_id INTEGER, group_label TEXT,
+    position INTEGER, played INTEGER DEFAULT 0,
+    won INTEGER DEFAULT 0, draw INTEGER DEFAULT 0, lost INTEGER DEFAULT 0,
+    gf INTEGER DEFAULT 0, ga INTEGER DEFAULT 0, gd INTEGER DEFAULT 0,
+    points INTEGER DEFAULT 0, updated_at TEXT,
+    UNIQUE(team_id, group_label)
 );
 """
 
