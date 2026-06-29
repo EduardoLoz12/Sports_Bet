@@ -109,7 +109,11 @@ def upsert_match(conn: sqlite3.Connection, m: dict):
             status=excluded.status,
             kickoff_utc=excluded.kickoff_utc,
             home_score=excluded.home_score,
-            away_score=excluded.away_score
+            away_score=excluded.away_score,
+            home_team=COALESCE(excluded.home_team, matches.home_team),
+            away_team=COALESCE(excluded.away_team, matches.away_team),
+            home_team_id=COALESCE(excluded.home_team_id, matches.home_team_id),
+            away_team_id=COALESCE(excluded.away_team_id, matches.away_team_id)
     """, (
         str(m["id"]),
         home.get("name", ""),
