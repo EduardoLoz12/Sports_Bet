@@ -413,7 +413,7 @@ async function loadAll() {
     const grid = document.getElementById('matches-grid');
     grid.innerHTML = matches.length
       ? matches.map(buildMatchCard).join('')
-      : '<div class="no-data">Sin predicciones — correr tools/predict_wc2026.py</div>';
+      : '<div class="no-data">⏳ Fase de grupos terminada — esperando que football-data.org asigne los cruces de eliminatoria (Last 32). Se actualiza solo en el próximo cron.</div>';
 
     document.getElementById('last-update').textContent = 'Actualizado: ' + new Date().toLocaleTimeString('es-PE');
   } catch(e) {
